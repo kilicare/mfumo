@@ -1,16 +1,26 @@
 -- Connect to genuine database
 \c genuine
 
--- Create extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+-- GENUINE LIQUOR STORE Database Initialization Script
+-- Creates extensions and initial setup
 
--- Set default locale
+-- Connect to genuine database
+\c genuine
+
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";          -- For full-text search
+CREATE EXTENSION IF NOT EXISTS "unaccent";         -- For accent-insensitive search
+
+-- Set defaults
 ALTER DATABASE genuine SET timezone TO 'UTC';
 
--- Create schemas
+-- Schemas
 CREATE SCHEMA IF NOT EXISTS public;
 
 -- Grant privileges
 GRANT ALL PRIVILEGES ON SCHEMA public TO lastmateru;
 GRANT USAGE ON SCHEMA public TO PUBLIC;
+
+-- Success message
+SELECT 'GENUINE LIQUOR STORE Database initialized successfully' AS message;
