@@ -181,7 +181,6 @@ async function main() {
   for (const unit of units) {
     await prisma.unit.create({
       data: {
-        businessId: business.id,
         name: unit.name,
         symbol: unit.symbol,
         isSystem: true,
@@ -193,13 +192,13 @@ async function main() {
 
   // Create default payment methods
   const paymentMethods = [
-    { name: 'Cash', code: 'CASH' },
-    { name: 'Bank Transfer', code: 'BANK' },
-    { name: 'M-Pesa', code: 'MPESA' },
-    { name: 'Tigo Pesa', code: 'TIGO' },
-    { name: 'Airtel Money', code: 'AIRTEL' },
-    { name: 'Halopesa', code: 'HALOPESA' },
-    { name: 'Credit', code: 'CREDIT' },
+    { name: 'Cash' },
+    { name: 'Bank Transfer' },
+    { name: 'M-Pesa' },
+    { name: 'Tigo Pesa' },
+    { name: 'Airtel Money' },
+    { name: 'Halopesa' },
+    { name: 'Credit' },
   ];
 
   for (const method of paymentMethods) {
@@ -207,8 +206,6 @@ async function main() {
       data: {
         businessId: business.id,
         name: method.name,
-        code: method.code,
-        isSystem: true,
       },
     });
   }
@@ -217,18 +214,18 @@ async function main() {
 
   // Create default expense categories
   const expenseCategories = [
-    { name: 'Salary', code: 'SALARY' },
-    { name: 'Transport', code: 'TRANSPORT' },
-    { name: 'Fuel', code: 'FUEL' },
-    { name: 'Electricity', code: 'ELECTRICITY' },
-    { name: 'Water', code: 'WATER' },
-    { name: 'Rent', code: 'RENT' },
-    { name: 'Internet', code: 'INTERNET' },
-    { name: 'Maintenance', code: 'MAINTENANCE' },
-    { name: 'Office Supplies', code: 'OFFICE' },
-    { name: 'Marketing', code: 'MARKETING' },
-    { name: 'Tax', code: 'TAX' },
-    { name: 'Bank Charges', code: 'BANK_CHARGES' },
+    { name: 'Salary' },
+    { name: 'Transport' },
+    { name: 'Fuel' },
+    { name: 'Electricity' },
+    { name: 'Water' },
+    { name: 'Rent' },
+    { name: 'Internet' },
+    { name: 'Maintenance' },
+    { name: 'Office Supplies' },
+    { name: 'Marketing' },
+    { name: 'Tax' },
+    { name: 'Bank Charges' },
   ];
 
   for (const category of expenseCategories) {
@@ -236,8 +233,6 @@ async function main() {
       data: {
         businessId: business.id,
         name: category.name,
-        code: category.code,
-        isSystem: true,
       },
     });
   }
@@ -303,6 +298,10 @@ async function main() {
   console.log('✅ Test supplier created');
 
   // Create test product
+  const bottleUnit = await prisma.unit.findFirst({
+    where: { symbol: 'btl' },
+  });
+
   const testProduct = await prisma.product.create({
     data: {
       businessId: business.id,
@@ -315,7 +314,7 @@ async function main() {
       sellingPrice: 2000,
       minimumStock: 20,
       reorderLevel: 30,
-      defaultUnit: 'Bottle',
+      defaultUnitId: bottleUnit?.id || '',
     },
   });
 
@@ -324,10 +323,10 @@ async function main() {
   // Create stock balance for test product
   await prisma.stockBalance.create({
     data: {
-      businessId: business.id,
       productId: testProduct.id,
       locationId: mainLocation.id,
       quantity: 100,
+      lastMovementAt: new Date(),
     },
   });
 

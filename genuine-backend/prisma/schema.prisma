@@ -21,13 +21,14 @@ model Business {
   description        String?
   email              String?
   financialYear      String              @default("CALENDAR")
+  isSetupComplete    Boolean             @default(false)
+  isActive           Boolean             @default(true)
   logoUrl            String?
   phone              String?
   taxPercentage      Float               @default(18.0)
   website            String?
   periods            AccountingPeriod[]
   auditLogs          AuditLog[]
-  brands             Brand[]
   categories         Category[]
   costingMethods     CostingMethod?
   customers          Customer[]
@@ -49,10 +50,8 @@ model Business {
   salesReturns       SalesReturn[]
   adjustments        StockAdjustment[]
   audits             StockAudit[]
-  stocks             StockBalance[]
   transfers          StockTransfer[]
   suppliers          Supplier[]
-  units              Unit[]
   users              User[]
 
   @@index([name])
@@ -143,46 +142,41 @@ model Category {
   businessId       String
   name             String
   description      String?
-  icon             String?
-  color            String?
   parentCategoryId String?
   isActive         Boolean    @default(true)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
   business         Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  parentCategory   Category?  @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
-  subcategories    Category[] @relation("CategoryHierarchy")
+  parentCategory   Category?  @relation("SubCategories", fields: [parentCategoryId], references: [id])
+  subCategories    Category[] @relation("SubCategories")
   products         Product[]
 
   @@unique([businessId, name])
   @@index([businessId])
-  @@index([parentCategoryId])
 }
 
 model Unit {
   id               String        @id @default(cuid())
-  businessId       String
-  name             String
-  symbol           String
+  name             String        @unique
+  symbol           String        @unique
   description      String?
   baseUnit         String?
   conversionFactor Float         @default(1.0)
   isDefault        Boolean       @default(false)
   isSystem         Boolean       @default(false)
+  isActive         Boolean       @default(true)
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
   productUnits     ProductUnit[]
-  business         Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  products         Product[]
 
-  @@unique([businessId, name])
-  @@index([businessId])
+  @@index([name])
 }
 
 model ProductUnit {
   id               String   @id @default(cuid())
   productId        String
   unitId           String
-  quantity         Float
   conversionFactor Float
   isDefault        Boolean  @default(false)
   createdAt        DateTime @default(now())
@@ -196,15 +190,14 @@ model ProductUnit {
 
 model Brand {
   id          String   @id @default(cuid())
-  businessId  String
   name        String   @unique
   description String?
   logo        String?
+  isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
-  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  products    Product[]
 
-  @@unique([businessId, name])
-  @@index([businessId])
+  @@index([name])
 }
 
 model Product {
@@ -212,18 +205,25 @@ model Product {
   businessId      String
   sku             String
   name            String
-  barcode         String?
+  barcode         String?               @unique
   description     String?
   categoryId      String
   supplierId      String?
   brandId         String?
   buyingPrice     Float
   sellingPrice    Float
+  wholesalePrice  Float?
   margin          Float?
   minimumStock    Int                   @default(10)
   reorderLevel    Int                   @default(15)
-  defaultUnit     String
+  defaultUnitId   String?
   status          String                @default("ACTIVE")
+  manufacturer    String?
+  weight          Float?
+  color           String?
+  size            String?
+  expiryDays      Int?
+  requiresExpiry  Boolean               @default(false)
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
   grnItems        GRNItem[]
@@ -231,6 +231,8 @@ model Product {
   business        Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
   category        Category              @relation(fields: [categoryId], references: [id])
   supplier        Supplier?             @relation(fields: [supplierId], references: [id])
+  brand           Brand?                @relation(fields: [brandId], references: [id])
+  defaultUnit     Unit?                 @relation(fields: [defaultUnitId], references: [id])
   units           ProductUnit[]
   purchaseItems   PurchaseOrderItem[]
   purchaseReturns PurchaseReturnItem[]
@@ -245,7 +247,9 @@ model Product {
   @@index([businessId])
   @@index([categoryId])
   @@index([supplierId])
+  @@index([brandId])
   @@index([status])
+  @@index([defaultUnitId])
 }
 
 model CustomerType {
@@ -321,6 +325,7 @@ model Location {
   phone         String?
   managerId     String?
   type          String              @default("WAREHOUSE")
+  description   String?
   isActive      Boolean             @default(true)
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
@@ -342,16 +347,14 @@ model PaymentMethod {
   id          String    @id @default(cuid())
   businessId  String
   name        String
-  code        String
   description String?
   isActive    Boolean   @default(true)
-  isSystem    Boolean   @default(false)
   createdAt   DateTime  @default(now())
   expenses    Expense[]
   payments    Payment[]
   business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  @@unique([businessId, code])
+  @@unique([businessId, name])
   @@index([businessId])
 }
 
@@ -359,16 +362,13 @@ model ExpenseCategory {
   id          String    @id @default(cuid())
   businessId  String
   name        String
-  code        String
   description String?
-  icon        String?
   isActive    Boolean   @default(true)
-  isSystem    Boolean   @default(false)
   createdAt   DateTime  @default(now())
   expenses    Expense[]
   business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  @@unique([businessId, code])
+  @@unique([businessId, name])
   @@index([businessId])
 }
 
@@ -587,20 +587,16 @@ model SalesReturnItem {
 
 model StockBalance {
   id               String    @id @default(cuid())
-  businessId       String
   productId        String
   locationId       String
-  quantity         Int       @default(0)
-  lastMovementDate DateTime?
-  lastMovementType String?
+  quantity         Float     @default(0)
+  lastMovementAt   DateTime  @default(now())
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
-  business         Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   location         Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
   product          Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([productId, locationId])
-  @@index([businessId])
   @@index([productId])
   @@index([locationId])
 }
@@ -611,12 +607,11 @@ model InventoryMovement {
   productId   String
   locationId  String
   type        String
-  quantity    Int
-  reference   String?
+  quantity    Float
   referenceId String?
-  reason      String?
+  referenceType String?
   notes       String?
-  userId      String?
+  createdBy   String
   createdAt   DateTime @default(now())
   business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   location    Location @relation(fields: [locationId], references: [id])
@@ -626,7 +621,6 @@ model InventoryMovement {
   @@index([productId])
   @@index([locationId])
   @@index([type])
-  @@index([createdAt])
 }
 
 model StockTransfer {

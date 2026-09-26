@@ -1,6 +1,12 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext, BadRequestException } from '@nestjs/common';
 
 export const Business = createParamDecorator((data: unknown, ctx: ExecutionContext): string => {
   const request = ctx.switchToHttp().getRequest();
-  return request.user?.businessId;
+  const businessId = request.user?.businessId;
+
+  if (!businessId) {
+    throw new BadRequestException('Business ID not found in request');
+  }
+
+  return businessId;
 });

@@ -17,6 +17,12 @@ import { LoggerMiddleware, RequestIdMiddleware } from './common/middleware';
 // Auth
 import { AuthModule } from './auth/auth.module';
 
+// Business
+import { BusinessModule } from './business/business.module';
+
+// Products
+import { ProductModule } from './products/product.module';
+
 // Controllers
 import { AppController } from './app.controller';
 
@@ -29,6 +35,8 @@ import { AppController } from './app.controller';
     DatabaseModule,
     CommonModule,
     AuthModule,
+    BusinessModule,
+    ProductModule,
   ],
   controllers: [AppController],
   providers: [
