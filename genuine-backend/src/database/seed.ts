@@ -1,4 +1,4 @@
-// @ts-ignore
+// @ts-expect-error - Prisma Client import
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
@@ -237,9 +237,7 @@ async function main() {
     });
   }
 
-  console.log(
-    `✅ ${expenseCategories.length} default expense categories created`,
-  );
+  console.log(`✅ ${expenseCategories.length} default expense categories created`);
 
   // Create default customer type
   await prisma.customerType.create({
