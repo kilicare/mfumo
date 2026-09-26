@@ -103,6 +103,7 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
+        name: `${user.firstName} ${user.lastName}`,
         firstName: user.firstName,
         lastName: user.lastName,
         businessId: business.id,
@@ -172,6 +173,7 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
+        name: `${user.firstName} ${user.lastName}`,
         firstName: user.firstName,
         lastName: user.lastName,
         businessId: user.businessId,
@@ -286,6 +288,7 @@ export class AuthService {
     return {
       message: 'If email exists, password reset link has been sent',
       email: dto.email,
+      resetToken,
     };
   }
 
@@ -349,7 +352,12 @@ export class AuthService {
       throw new BadRequestException('User not found');
     }
 
-    const isCurrentPasswordValid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    const currentPassword = dto.currentPassword || dto.oldPassword;
+    if (!currentPassword) {
+      throw new BadRequestException('Current/old password is required');
+    }
+
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!isCurrentPasswordValid) {
       throw new UnauthorizedException('Current password is incorrect');
     }
