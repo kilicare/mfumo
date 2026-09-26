@@ -1,4 +1,3 @@
-// @ts-expect-error - Prisma Client import
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
@@ -28,7 +27,9 @@ async function main() {
   // Create default roles
   const ownerRole = await prisma.role.create({
     data: {
-      businessId: business.id,
+      business: {
+        connect: { id: business.id },
+      },
       name: 'Owner',
       description: 'Business owner with full access',
       isDefault: true,
@@ -38,7 +39,9 @@ async function main() {
 
   await prisma.role.create({
     data: {
-      businessId: business.id,
+      business: {
+        connect: { id: business.id },
+      },
       name: 'Admin',
       description: 'Administrator',
       isDefault: false,
@@ -146,8 +149,10 @@ async function main() {
       lastName: 'User',
       isActive: true,
       isVerified: true,
-      roles: {
-        connect: [{ id: ownerRole.id }],
+      userRoles: {
+        create: {
+          roleId: ownerRole.id,
+        },
       },
       permissions: {
         connect: createdPermissions.map((p) => ({ id: p.id })),

@@ -1,7 +1,5 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 
 // Database
@@ -17,7 +15,7 @@ import { createValidationPipe } from './common/pipes';
 import { LoggerMiddleware, RequestIdMiddleware } from './common/middleware';
 
 // Auth
-import { JwtStrategy } from './auth/strategies/jwt.strategy';
+import { AuthModule } from './auth/auth.module';
 
 // Controllers
 import { AppController } from './app.controller';
@@ -28,19 +26,13 @@ import { AppController } from './app.controller';
       isGlobal: true,
       envFilePath: ['.env', '.env.production'],
     }),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: (process.env.JWT_EXPIRATION || '24h') as any },
-      global: true,
-    }),
-    PassportModule.register({ defaultStrategy: 'jwt' }),
     DatabaseModule,
     CommonModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [
     PrismaService,
-    JwtStrategy,
 
     // Global Filters
     {

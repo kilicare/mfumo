@@ -60,28 +60,28 @@ model Business {
 }
 
 model User {
-  id                  String        @id @default(cuid())
-  businessId          String
-  email               String        @unique
-  passwordHash        String
-  firstName           String
-  lastName            String
-  phone               String?
-  avatar              String?
-  isActive            Boolean       @default(true)
-  isVerified          Boolean       @default(false)
-  verificationToken   String?
-  resetPasswordToken  String?
-  resetPasswordExpiry DateTime?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-  lastLogin           DateTime?
-  createdAuditLogs    AuditLog[]    @relation("AuditCreatedBy")
-  assignedLocations   Location[]    @relation("LocationManager")
-  business            Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  sessions            UserSession[]
-  permissions         Permission[]  @relation("UserPermissions")
-  roles               Role[]        @relation("UserRoles")
+  id                     String        @id @default(cuid())
+  businessId             String
+  email                  String        @unique
+  passwordHash           String
+  firstName              String
+  lastName               String
+  phone                  String?
+  avatar                 String?
+  isActive               Boolean       @default(true)
+  isVerified             Boolean       @default(false)
+  verificationToken      String?
+  passwordResetTokenHash String?
+  passwordResetExpiresAt DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  lastLogin              DateTime?
+  createdAuditLogs       AuditLog[]    @relation("AuditCreatedBy")
+  assignedLocations      Location[]    @relation("LocationManager")
+  business               Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sessions               UserSession[]
+  permissions            Permission[]  @relation("UserPermissions")
+  userRoles              UserRole[]
 
   @@unique([businessId, email])
   @@index([businessId])
@@ -99,10 +99,23 @@ model Role {
   updatedAt   DateTime     @updatedAt
   business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
   permissions Permission[] @relation("RolePermissions")
-  users       User[]       @relation("UserRoles")
+  userRoles   UserRole[]
 
   @@unique([businessId, name])
   @@index([businessId])
+}
+
+model UserRole {
+  id         String   @id @default(cuid())
+  userId     String
+  roleId     String
+  assignedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
 }
 
 model Permission {
@@ -860,19 +873,15 @@ model AuditLog {
 }
 
 model UserSession {
-  id             String    @id @default(cuid())
-  userId         String
-  token          String    @unique
-  ipAddress      String?
-  userAgent      String?
-  loginAt        DateTime  @default(now())
-  logoutAt       DateTime?
-  lastActivityAt DateTime  @default(now())
-  expiresAt      DateTime
-  isActive       Boolean   @default(true)
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  ipAddress        String?
+  userAgent        String?
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([token])
   @@index([expiresAt])
 }
