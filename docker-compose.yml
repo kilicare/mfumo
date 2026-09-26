@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # Using local PostgreSQL instead of Docker
+  # Uncomment below if you want to use Docker PostgreSQL
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: genuine_postgres
+  #   environment:
+  #     POSTGRES_USER: genuine
+  #     POSTGRES_PASSWORD: genuine_pass
+  #     POSTGRES_DB: genuine
+  #     PGTZ: 'UTC'
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #     - ./genuine-backend/src/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U genuine"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - genuine_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: genuine_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - genuine_network
+
+  # Uncomment below if you want to use pgAdmin with local PostgreSQL
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   container_name: genuine_pgadmin
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: admin@genuine.local
+  #     PGADMIN_DEFAULT_PASSWORD: admin
+  #   ports:
+  #     - "5050:80"
+  #   depends_on:
+  #     - postgres
+  #   volumes:
+  #     - pgadmin_data:/var/lib/pgadmin
+  #   networks:
+  #     - genuine_network
+
+volumes:
+  # postgres_data:
+  #   driver: local
+  redis_data:
+    driver: local
+  # pgadmin_data:
+  #   driver: local
+
+networks:
+  genuine_network:
+    driver: bridge

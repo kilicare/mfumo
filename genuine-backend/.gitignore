@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+dist/
+pnpm-lock.yaml
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test
+coverage/
+.nyc_output/
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
+
+# Build
+dist/
+build/
