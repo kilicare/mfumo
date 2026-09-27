@@ -281,6 +281,7 @@ model Customer {
   contacts       CustomerContact[]
   address        CustomerAddress?
   salesInvoices  SalesInvoice[]
+  salesReturns   SalesReturn[]
   payments       Payment[]
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
@@ -582,6 +583,14 @@ model SalesInvoice {
   totalPaid       Float              @default(0)
   balance         Float
   salespersonId   String?
+  createdBy       String?
+  referenceNumber String?
+  paymentTerms    String             @default("COD")
+  issuedDate      DateTime?
+  approvedBy      String?
+  approvedAt      DateTime?
+  cancelledBy     String?
+  cancelledAt     DateTime?
   notes           String?
   attachments     String?
   createdAt       DateTime           @default(now())
@@ -602,16 +611,21 @@ model SalesInvoice {
 }
 
 model SalesInvoiceItem {
-  id        String       @id @default(cuid())
-  invoiceId String
-  productId String
-  quantity  Int
-  unitPrice Float
-  discount  Float        @default(0)
-  total     Float
-  lineNo    Int
-  invoice   SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  product   Product      @relation(fields: [productId], references: [id])
+  id                 String             @id @default(cuid())
+  invoiceId          String
+  productId          String
+  quantity           Float
+  unitPrice          Float
+  discount           Float              @default(0)
+  discountPercentage Float              @default(0)
+  total              Float
+  lineNo             Int
+  batchNumber        String?
+  expiryDate         String?
+  notes              String?
+  invoice            SalesInvoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product            Product            @relation(fields: [productId], references: [id])
+  returnItems        SalesReturnItem[]
 
   @@index([invoiceId])
   @@index([productId])
@@ -621,15 +635,25 @@ model SalesReturn {
   id           String            @id @default(cuid())
   businessId   String
   invoiceId    String
+  customerId   String?
   returnNumber String            @unique
   returnDate   DateTime
   reason       String
   totalAmount  Float
   status       String            @default("DRAFT")
+  notes        String?
+  createdBy    String?
+  authorizedBy String?
+  authorizedAt DateTime?
+  rejectedBy   String?
+  rejectedAt   DateTime?
+  receivedBy   String?
+  receivedAt   DateTime?
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
   business     Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   invoice      SalesInvoice      @relation(fields: [invoiceId], references: [id])
+  customer     Customer?         @relation(fields: [customerId], references: [id])
   items        SalesReturnItem[]
 
   @@unique([businessId, returnNumber])
@@ -638,19 +662,23 @@ model SalesReturn {
 }
 
 model SalesReturnItem {
-  id        String      @id @default(cuid())
-  returnId  String
-  productId String
-  quantity  Int
-  unitPrice Float
-  total     Float
-  reason    String?
-  condition String?
-  product   Product     @relation(fields: [productId], references: [id])
-  return    SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  id                 String             @id @default(cuid())
+  returnId           String
+  productId          String
+  salesInvoiceItemId String?
+  quantity           Float
+  unitPrice          Float
+  total              Float
+  reason             String?
+  condition          String?
+  notes              String?
+  product            Product            @relation(fields: [productId], references: [id])
+  return             SalesReturn        @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  salesInvoiceItem   SalesInvoiceItem?   @relation(fields: [salesInvoiceItemId], references: [id], onDelete: SetNull)
 
   @@index([returnId])
   @@index([productId])
+  @@index([salesInvoiceItemId])
 }
 
 model StockBalance {

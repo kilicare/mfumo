@@ -230,10 +230,15 @@ export class SupplierService {
 
     // Format responses
     let results = suppliersWithFinancials.map((item) =>
-      this._formatSupplierResponse(item.supplier, item.supplier.contacts || [], item.supplier.address, {
-        totalPurchased: item.totalPurchased,
-        totalPaid: item.totalPaid,
-      }),
+      this._formatSupplierResponse(
+        item.supplier,
+        item.supplier.contacts || [],
+        item.supplier.address,
+        {
+          totalPurchased: item.totalPurchased,
+          totalPaid: item.totalPaid,
+        },
+      ),
     );
 
     // Apply overdue filter if needed
@@ -365,42 +370,43 @@ export class SupplierService {
    * DELETE SUPPLIER
    * Only if no purchase orders
    */
-  async deleteSupplier(businessId: string, supplierId: string, userId: string): Promise<{ message: string }> {
+  async deleteSupplier(
+    businessId: string,
+    supplierId: string,
+    userId: string,
+  ): Promise<{ message: string }> {
     this.logger.log(`[SUPPLIERS] Deleting supplier: ${supplierId}`);
 
-    const supplier = await this.prisma.supplier.findFirst({
-      where: {
-        id: supplierId,
-        businessId,
-      },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const supplier = await tx.supplier.findFirst({
+        where: { id: supplierId, businessId },
+      });
 
-    if (!supplier) {
-      throw new NotFoundException('Supplier not found');
-    }
+      if (!supplier) {
+        throw new NotFoundException('Supplier not found');
+      }
 
-    // Check for purchase orders
-    const poCount = await this.prisma.purchaseOrder.count({
-      where: { supplierId },
-    });
+      const poCount = await tx.purchaseOrder.count({
+        where: { supplierId, businessId },
+      });
 
-    if (poCount > 0) {
-      throw new BadRequestException('Cannot delete supplier with purchase orders');
-    }
+      if (poCount > 0) {
+        throw new BadRequestException('Cannot delete supplier with purchase orders');
+      }
 
-    // Delete contacts
-    await this.prisma.supplierContact.deleteMany({
-      where: { supplierId },
-    });
-
-    // Delete address
-    await this.prisma.supplierAddress.deleteMany({
-      where: { supplierId },
-    });
-
-    // Delete supplier
-    await this.prisma.supplier.delete({
-      where: { id: supplierId },
+      await tx.supplierContact.deleteMany({ where: { supplierId } });
+      await tx.supplierAddress.deleteMany({ where: { supplierId } });
+      await tx.supplier.delete({ where: { id: supplierId } });
+      await tx.auditLog.create({
+        data: {
+          businessId,
+          userId,
+          action: 'DELETE',
+          entityType: 'SUPPLIER',
+          entityId: supplierId,
+          description: `Deleted supplier ${supplierId}`,
+        },
+      });
     });
 
     this.logger.log(`[SUPPLIERS] Supplier deleted: ${supplierId}`);
@@ -411,7 +417,11 @@ export class SupplierService {
   /**
    * GET SUPPLIER STATEMENT (Aging Report)
    */
-  async getSupplierStatement(businessId: string, supplierId: string, month?: string): Promise<SupplierStatementDto> {
+  async getSupplierStatement(
+    businessId: string,
+    supplierId: string,
+    month?: string,
+  ): Promise<SupplierStatementDto> {
     this.logger.log(`[SUPPLIERS] Getting statement for supplier: ${supplierId}`);
 
     const supplier = await this.prisma.supplier.findFirst({

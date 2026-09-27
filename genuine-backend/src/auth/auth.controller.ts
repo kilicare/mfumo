@@ -140,7 +140,9 @@ export class AuthController {
       lastName: user.lastName,
       businessId: user.businessId,
       roles: user.userRoles?.map((ur: any) => ur.role?.name || ur.role) || [],
-      permissions: user.userRoles?.flatMap((ur: any) => ur.role?.permissions || []).map((p: any) => p.key) || [],
+      permissions:
+        user.userRoles?.flatMap((ur: any) => ur.role?.permissions || []).map((p: any) => p.key) ||
+        [],
     };
   }
 

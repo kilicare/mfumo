@@ -1598,10 +1598,11 @@ export class PurchaseService {
       where: { businessId, poNumber: { startsWith: prefix } },
       select: { poNumber: true },
     });
-    const next = numbers.reduce(
-      (maximum, row) => Math.max(maximum, Number(row.poNumber.slice(prefix.length)) || 0),
-      0,
-    ) + 1;
+    const next =
+      numbers.reduce(
+        (maximum, row) => Math.max(maximum, Number(row.poNumber.slice(prefix.length)) || 0),
+        0,
+      ) + 1;
     return `${prefix}${String(next).padStart(5, '0')}`;
   }
 
@@ -1615,10 +1616,11 @@ export class PurchaseService {
       where: { businessId, grnNumber: { startsWith: prefix } },
       select: { grnNumber: true },
     });
-    const next = numbers.reduce(
-      (maximum, row) => Math.max(maximum, Number(row.grnNumber.slice(prefix.length)) || 0),
-      0,
-    ) + 1;
+    const next =
+      numbers.reduce(
+        (maximum, row) => Math.max(maximum, Number(row.grnNumber.slice(prefix.length)) || 0),
+        0,
+      ) + 1;
     return `${prefix}${String(next).padStart(5, '0')}`;
   }
 
@@ -1632,10 +1634,11 @@ export class PurchaseService {
       where: { businessId, returnNumber: { startsWith: prefix } },
       select: { returnNumber: true },
     });
-    const next = numbers.reduce(
-      (maximum, row) => Math.max(maximum, Number(row.returnNumber.slice(prefix.length)) || 0),
-      0,
-    ) + 1;
+    const next =
+      numbers.reduce(
+        (maximum, row) => Math.max(maximum, Number(row.returnNumber.slice(prefix.length)) || 0),
+        0,
+      ) + 1;
     return `${prefix}${String(next).padStart(5, '0')}`;
   }
 

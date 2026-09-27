@@ -229,10 +229,15 @@ export class CustomerService {
 
     // Format responses
     let results = customersWithFinancials.map((item) =>
-      this._formatCustomerResponse(item.customer, item.customer.contacts || [], item.customer.address, {
-        totalSales: item.totalSales,
-        totalPaid: item.totalPaid,
-      }),
+      this._formatCustomerResponse(
+        item.customer,
+        item.customer.contacts || [],
+        item.customer.address,
+        {
+          totalSales: item.totalSales,
+          totalPaid: item.totalPaid,
+        },
+      ),
     );
 
     // Apply overdue filter if needed
@@ -360,42 +365,43 @@ export class CustomerService {
    * DELETE CUSTOMER
    * Only if no sales invoices
    */
-  async deleteCustomer(businessId: string, customerId: string, userId: string): Promise<{ message: string }> {
+  async deleteCustomer(
+    businessId: string,
+    customerId: string,
+    userId: string,
+  ): Promise<{ message: string }> {
     this.logger.log(`[CUSTOMERS] Deleting customer: ${customerId}`);
 
-    const customer = await this.prisma.customer.findFirst({
-      where: {
-        id: customerId,
-        businessId,
-      },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.findFirst({
+        where: { id: customerId, businessId },
+      });
 
-    if (!customer) {
-      throw new NotFoundException('Customer not found');
-    }
+      if (!customer) {
+        throw new NotFoundException('Customer not found');
+      }
 
-    // Check for sales invoices
-    const invoiceCount = await this.prisma.salesInvoice.count({
-      where: { customerId },
-    });
+      const invoiceCount = await tx.salesInvoice.count({
+        where: { customerId, businessId },
+      });
 
-    if (invoiceCount > 0) {
-      throw new BadRequestException('Cannot delete customer with sales invoices');
-    }
+      if (invoiceCount > 0) {
+        throw new BadRequestException('Cannot delete customer with sales invoices');
+      }
 
-    // Delete contacts
-    await this.prisma.customerContact.deleteMany({
-      where: { customerId },
-    });
-
-    // Delete address
-    await this.prisma.customerAddress.deleteMany({
-      where: { customerId },
-    });
-
-    // Delete customer
-    await this.prisma.customer.delete({
-      where: { id: customerId },
+      await tx.customerContact.deleteMany({ where: { customerId } });
+      await tx.customerAddress.deleteMany({ where: { customerId } });
+      await tx.customer.delete({ where: { id: customerId } });
+      await tx.auditLog.create({
+        data: {
+          businessId,
+          userId,
+          action: 'DELETE',
+          entityType: 'CUSTOMER',
+          entityId: customerId,
+          description: `Deleted customer ${customerId}`,
+        },
+      });
     });
 
     this.logger.log(`[CUSTOMERS] Customer deleted: ${customerId}`);
@@ -406,7 +412,11 @@ export class CustomerService {
   /**
    * GET CUSTOMER STATEMENT (Aging Report)
    */
-  async getCustomerStatement(businessId: string, customerId: string, month?: string): Promise<CustomerStatementDto> {
+  async getCustomerStatement(
+    businessId: string,
+    customerId: string,
+    month?: string,
+  ): Promise<CustomerStatementDto> {
     this.logger.log(`[CUSTOMERS] Getting statement for customer: ${customerId}`);
 
     const customer = await this.prisma.customer.findFirst({

@@ -3,4 +3,3 @@ export class PasswordResetRequestDto {
   email: string;
   resetToken?: string;
 }
-

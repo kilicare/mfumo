@@ -86,10 +86,7 @@ export class SupplierCustomerController {
   @RequirePermission('suppliers.view')
   @ApiOperation({ summary: 'Get all suppliers' })
   @ApiResponse({ status: 200 })
-  async getAllSuppliers(
-    @Business() businessId: string,
-    @Query() filter: SupplierFilterDto,
-  ) {
+  async getAllSuppliers(@Business() businessId: string, @Query() filter: SupplierFilterDto) {
     return this.supplierService.getAllSuppliers(businessId, filter);
   }
 
@@ -191,10 +188,7 @@ export class SupplierCustomerController {
   @RequirePermission('customers.view')
   @ApiOperation({ summary: 'Get all customers' })
   @ApiResponse({ status: 200 })
-  async getAllCustomers(
-    @Business() businessId: string,
-    @Query() filter: CustomerFilterDto,
-  ) {
+  async getAllCustomers(@Business() businessId: string, @Query() filter: CustomerFilterDto) {
     return this.customerService.getAllCustomers(businessId, filter);
   }
 
