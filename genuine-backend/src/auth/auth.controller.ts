@@ -94,7 +94,20 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Change password (requires authentication)' })
+  @ApiOperation({ summary: 'Change password (PATCH)' })
+  @ApiResponse({ status: 200 })
+  async changePasswordPatch(
+    @UserId() userId: string,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<{ message: string }> {
+    return this.authService.changePassword(userId, dto);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Change password (POST)' })
   @ApiResponse({ status: 200 })
   async changePassword(
     @UserId() userId: string,
@@ -126,8 +139,18 @@ export class AuthController {
       firstName: user.firstName,
       lastName: user.lastName,
       businessId: user.businessId,
-      roles: user.userRoles.map((ur: any) => ur.role.name),
-      permissions: user.userRoles.flatMap((ur: any) => ur.role.permissions).map((p: any) => p.key),
+      roles: user.userRoles?.map((ur: any) => ur.role?.name || ur.role) || [],
+      permissions: user.userRoles?.flatMap((ur: any) => ur.role?.permissions || []).map((p: any) => p.key) || [],
     };
+  }
+
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get current user profile' })
+  @ApiResponse({ status: 200 })
+  async getProfile(@CurrentUser() user: any) {
+    return this.getCurrentUser(user);
   }
 }

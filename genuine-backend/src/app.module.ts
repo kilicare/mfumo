@@ -23,6 +23,12 @@ import { BusinessModule } from './business/business.module';
 // Products
 import { ProductModule } from './products/product.module';
 
+// Suppliers & Customers
+import { SuppliersCustomersModule } from './suppliers-customers/suppliers-customers.module';
+
+// Purchases
+import { PurchasesModule } from './purchases/purchases.module';
+
 // Controllers
 import { AppController } from './app.controller';
 
@@ -37,6 +43,8 @@ import { AppController } from './app.controller';
     AuthModule,
     BusinessModule,
     ProductModule,
+    SuppliersCustomersModule,
+    PurchasesModule,
   ],
   controllers: [AppController],
   providers: [

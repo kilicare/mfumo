@@ -6,6 +6,20 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
+  // Clean up existing data
+  const tablenames = await prisma.$queryRaw<
+    Array<{ tablename: string }>
+  >`SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename != '_prisma_migrations'`;
+
+  const tables = tablenames.map(({ tablename }) => `"${tablename}"`).join(', ');
+
+  try {
+    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tables} CASCADE;`);
+    console.log('🧹 Cleaned existing database tables');
+  } catch (error) {
+    console.log('⚠️ Could not truncate all tables:', error);
+  }
+
   // Create test business
   const business = await prisma.business.create({
     data: {
@@ -89,6 +103,13 @@ async function main() {
     { key: 'purchases.view', category: 'purchases', action: 'view' },
     { key: 'purchases.create', category: 'purchases', action: 'create' },
     { key: 'purchases.edit', category: 'purchases', action: 'edit' },
+    { key: 'purchases.approve', category: 'purchases', action: 'approve' },
+    { key: 'purchases.cancel', category: 'purchases', action: 'cancel' },
+    { key: 'purchases.delete', category: 'purchases', action: 'delete' },
+
+    // Payments
+    { key: 'payments.view', category: 'payments', action: 'view' },
+    { key: 'payments.create', category: 'payments', action: 'create' },
 
     // Inventory
     { key: 'inventory.view', category: 'inventory', action: 'view' },
@@ -101,6 +122,18 @@ async function main() {
 
     // Reports
     { key: 'reports.view', category: 'reports', action: 'view' },
+
+    // Suppliers
+    { key: 'suppliers.view', category: 'suppliers', action: 'view' },
+    { key: 'suppliers.create', category: 'suppliers', action: 'create' },
+    { key: 'suppliers.edit', category: 'suppliers', action: 'edit' },
+    { key: 'suppliers.delete', category: 'suppliers', action: 'delete' },
+
+    // Customers
+    { key: 'customers.view', category: 'customers', action: 'view' },
+    { key: 'customers.create', category: 'customers', action: 'create' },
+    { key: 'customers.edit', category: 'customers', action: 'edit' },
+    { key: 'customers.delete', category: 'customers', action: 'delete' },
 
     // Admin
     { key: 'users.manage', category: 'users', action: 'manage' },
@@ -287,11 +320,34 @@ async function main() {
     data: {
       businessId: business.id,
       name: 'Test Supplier Ltd',
+      supplierCode: 'SUP-00001',
       phone: '+255 789 654321',
       email: 'supplier@example.com',
-      address: 'Dar es Salaam',
-      contactPerson: 'John Supplier',
       paymentTerms: 'NET-30',
+      creditLimit: 10000000,
+      openingBalance: 0,
+      isActive: true,
+      address: {
+        create: {
+          street: '123 Business Street',
+          city: 'Dar es Salaam',
+          region: 'Dar',
+          postalCode: '10101',
+          country: 'Tanzania',
+        },
+      },
+      contacts: {
+        create: [
+          {
+            firstName: 'John',
+            lastName: 'Supplier',
+            email: 'supplier@example.com',
+            phone: '+255 789 654321',
+            position: 'Sales Manager',
+            isPrimary: true,
+          },
+        ],
+      },
     },
   });
 
@@ -333,24 +389,21 @@ async function main() {
   console.log('✅ Stock balance created for test product');
 
   // Create test customer
-  const retailCustomerType = await prisma.customerType.findFirst({
-    where: { businessId: business.id, name: 'Retail' },
+  await prisma.customer.create({
+    data: {
+      businessId: business.id,
+      name: 'Test Customer',
+      customerCode: 'CUST-00001',
+      customerType: 'RETAIL',
+      phone: '+255 700 123456',
+      email: 'customer@example.com',
+      paymentTerms: 'NET-30',
+      creditLimit: 5000000,
+      openingBalance: 0,
+      isActive: true,
+    },
   });
-
-  if (retailCustomerType) {
-    await prisma.customer.create({
-      data: {
-        businessId: business.id,
-        name: 'Test Customer',
-        phone: '+255 700 123456',
-        email: 'customer@example.com',
-        address: 'Dar es Salaam',
-        customerTypeId: retailCustomerType.id,
-        creditLimit: 5000000,
-      },
-    });
-    console.log('✅ Test customer created');
-  }
+  console.log('✅ Test customer created');
 
   // Create costing method
   await prisma.costingMethod.create({

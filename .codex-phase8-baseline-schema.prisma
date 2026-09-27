@@ -226,6 +226,7 @@ model Product {
   requiresExpiry  Boolean               @default(false)
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
+  grnItems        GRNItem[]
   movements       InventoryMovement[]
   business        Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
   category        Category              @relation(fields: [categoryId], references: [id])
@@ -234,6 +235,7 @@ model Product {
   defaultUnit     Unit?                 @relation(fields: [defaultUnitId], references: [id])
   units           ProductUnit[]
   purchaseItems   PurchaseOrderItem[]
+  purchaseReturns PurchaseReturnItem[]
   invoiceItems    SalesInvoiceItem[]
   returns         SalesReturnItem[]
   adjustmentItems StockAdjustmentItem[]
@@ -256,6 +258,7 @@ model CustomerType {
   name        String
   description String?
   isSystem    Boolean    @default(false)
+  customers   Customer[]
   business    Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, name])
@@ -263,118 +266,54 @@ model CustomerType {
 }
 
 model Customer {
-  id             String            @id @default(uuid())
+  id             String         @id @default(cuid())
   businessId     String
-  business       Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   name           String
-  customerCode   String
-  customerType   String            // RETAIL, WHOLESALE, CORPORATE, DISTRIBUTOR
-  description    String?
-  email          String
-  phone          String
-  secondaryPhone String?
-  taxId          String?
-  creditLimit    Float             @default(0)
-  paymentTerms   String            // NET-7, NET-14, NET-30, NET-45, NET-60, COD, PREPAID
-  openingBalance Float             @default(0)
-  isActive       Boolean           @default(true)
-  contacts       CustomerContact[]
-  address        CustomerAddress?
-  salesInvoices  SalesInvoice[]
+  phone          String?
+  email          String?
+  address        String?
+  customerTypeId String
+  creditLimit    Float          @default(0)
+  openingBalance Float          @default(0)
+  paymentTerms   String?
+  taxNumber      String?
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  business       Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customerType   CustomerType   @relation(fields: [customerTypeId], references: [id])
   payments       Payment[]
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  invoices       SalesInvoice[]
 
-  @@unique([businessId, customerCode])
+  @@unique([businessId, phone])
+  @@unique([businessId, email])
   @@index([businessId])
-  @@index([customerType])
-}
-
-model CustomerContact {
-  id         String   @id @default(uuid())
-  customerId String
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  firstName  String
-  lastName   String
-  email      String
-  phone      String
-  position   String?
-  isPrimary  Boolean  @default(false)
-  createdAt  DateTime @default(now())
-
-  @@index([customerId])
-}
-
-model CustomerAddress {
-  id         String   @id @default(uuid())
-  customerId String   @unique
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  street     String
-  city       String
-  region     String
-  postalCode String
-  country    String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  @@index([customerTypeId])
 }
 
 model Supplier {
-  id                String            @id @default(uuid())
-  businessId        String
-  business          Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  name              String
-  supplierCode      String
-  description       String?
-  email             String
-  phone             String
-  secondaryPhone    String?
-  bankName          String?
-  bankAccountNumber String?
-  bankSwiftCode     String?
-  taxId             String?
-  creditLimit       Float             @default(0)
-  paymentTerms      String            // NET-7, NET-14, NET-30, NET-45, NET-60, CASH
-  openingBalance    Float             @default(0)
-  isActive          Boolean           @default(true)
-  contacts          SupplierContact[]
-  address           SupplierAddress?
-  purchaseOrders    PurchaseOrder[]
-  purchaseReturns   PurchaseReturn[]
-  payments          Payment[]
-  products          Product[]
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  id             String          @id @default(cuid())
+  businessId     String
+  name           String
+  phone          String?
+  email          String?
+  address        String?
+  contactPerson  String?
+  contactPhone   String?
+  taxNumber      String?
+  paymentTerms   String?
+  openingBalance Float           @default(0)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  payments       Payment[]
+  products       Product[]
+  purchases      PurchaseOrder[]
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  @@unique([businessId, supplierCode])
+  @@unique([businessId, phone])
+  @@unique([businessId, email])
   @@index([businessId])
-}
-
-model SupplierContact {
-  id         String   @id @default(uuid())
-  supplierId String
-  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  firstName  String
-  lastName   String
-  email      String
-  phone      String
-  position   String?
-  isPrimary  Boolean  @default(false)
-  createdAt  DateTime @default(now())
-
-  @@index([supplierId])
-}
-
-model SupplierAddress {
-  id         String   @id @default(uuid())
-  supplierId String   @unique
-  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  street     String
-  city       String
-  region     String
-  postalCode String
-  country    String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
 }
 
 model Location {
@@ -398,7 +337,6 @@ model Location {
   stocks        StockBalance[]
   transfersFrom StockTransfer[]     @relation("TransferFrom")
   transfersTo   StockTransfer[]     @relation("TransferTo")
-  purchaseOrders PurchaseOrder[]
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -435,134 +373,128 @@ model ExpenseCategory {
 }
 
 model PurchaseOrder {
-  id                   String              @id @default(uuid())
-  businessId           String
-  business             Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  poNumber             String
-  supplierId           String
-  supplier             Supplier            @relation(fields: [supplierId], references: [id])
-  locationId           String
-  location             Location            @relation(fields: [locationId], references: [id])
-  status               String              @default("DRAFT") // DRAFT, ORDERED, PARTIALLY_RECEIVED, FULLY_RECEIVED, CLOSED, CANCELLED
-  items                PurchaseOrderItem[]
-  grns                 GoodsReceivedNote[]
-  returns              PurchaseReturn[]
-  payments             Payment[]           @relation("PurchasePayments")
-  subtotal             Float
-  shippingCost         Float               @default(0)
-  taxAmount            Float               @default(0)
-  totalAmount          Float
-  orderDate            DateTime
-  expectedDeliveryDate DateTime?
-  approvedBy           String?
-  approvedAt           DateTime?
-  cancelledBy          String?
-  cancelledAt          DateTime?
-  notes                String?
-  referenceNumber      String?
-  createdBy            String
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  id               String              @id @default(cuid())
+  businessId       String
+  supplierId       String
+  orderNumber      String
+  orderDate        DateTime
+  expectedDelivery DateTime?
+  status           String              @default("DRAFT")
+  subtotal         Float               @default(0)
+  taxAmount        Float               @default(0)
+  totalAmount      Float               @default(0)
+  totalPaid        Float               @default(0)
+  notes            String?
+  attachments      String?
+  createdBy        String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  grn              GoodsReceivedNote?
+  payments         Payment[]           @relation("PurchasePayments")
+  business         Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  supplier         Supplier            @relation(fields: [supplierId], references: [id])
+  items            PurchaseOrderItem[]
+  returns          PurchaseReturn[]
 
-  @@unique([businessId, poNumber])
+  @@unique([businessId, orderNumber])
   @@index([businessId])
   @@index([supplierId])
   @@index([status])
+  @@index([orderDate])
 }
 
 model PurchaseOrderItem {
-  id                  String               @id @default(uuid())
-  purchaseOrderId     String
-  purchaseOrder       PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  productId           String
-  product             Product              @relation(fields: [productId], references: [id])
-  quantity            Float
-  unitPrice           Float
-  discount            Float                @default(0)
-  lineTotal           Float
-  notes               String?
-  grnItems            GRNItem[]
-  returnItems         PurchaseReturnItem[]
+  id          String        @id @default(cuid())
+  poId        String
+  productId   String
+  orderedQty  Int
+  receivedQty Int           @default(0)
+  acceptedQty Int           @default(0)
+  rejectedQty Int           @default(0)
+  unitPrice   Float
+  total       Float
+  notes       String?
+  lineNo      Int
+  po          PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  product     Product       @relation(fields: [productId], references: [id])
 
-  @@index([purchaseOrderId])
+  @@index([poId])
   @@index([productId])
 }
 
 model GoodsReceivedNote {
-  id                  String            @id @default(uuid())
-  businessId          String
-  business            Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  grnNumber           String
-  purchaseOrderId     String
-  purchaseOrder       PurchaseOrder     @relation(fields: [purchaseOrderId], references: [id])
-  status              String            @default("RECEIVED") // RECEIVED, ACCEPTED, REJECTED
-  items               GRNItem[]
-  vehicleRegistration String?
-  driverName          String?
-  waybillNumber       String?
-  receivedBy          String
-  receivedDate        DateTime
-  notes               String?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  id           String        @id @default(cuid())
+  businessId   String
+  poId         String        @unique
+  grnNumber    String        @unique
+  grnDate      DateTime
+  status       String        @default("DRAFT")
+  notes        String?
+  receivedDate DateTime
+  receivedBy   String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  items        GRNItem[]
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  po           PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, grnNumber])
   @@index([businessId])
-  @@index([purchaseOrderId])
+  @@index([poId])
+  @@index([status])
 }
 
 model GRNItem {
-  id                  String            @id @default(uuid())
-  grnId               String
-  grn                 GoodsReceivedNote @relation(fields: [grnId], references: [id], onDelete: Cascade)
-  purchaseOrderItemId String
-  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
-  receivedQuantity    Float
-  acceptedQuantity    Float
-  rejectedQuantity    Float
-  damageQuantity      Float
-  notes               String?
+  id           String            @id @default(cuid())
+  grnId        String
+  productId    String
+  orderedQty   Int
+  receivedQty  Int
+  acceptedQty  Int
+  rejectedQty  Int               @default(0)
+  damageQty    Int               @default(0)
+  unitPrice    Float
+  qualityNotes String?
+  grn          GoodsReceivedNote @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  product      Product           @relation(fields: [productId], references: [id])
 
   @@index([grnId])
-  @@index([purchaseOrderItemId])
+  @@index([productId])
 }
 
 model PurchaseReturn {
-  id                String               @id @default(uuid())
-  businessId        String
-  business          Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  returnNumber      String
-  purchaseOrderId   String
-  purchaseOrder     PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
-  supplierId        String
-  supplier          Supplier             @relation(fields: [supplierId], references: [id])
-  status            String               @default("DRAFT") // DRAFT, APPROVED, REJECTED, COMPLETED
-  items             PurchaseReturnItem[]
-  totalReturnAmount Float
-  approvedBy        String?
-  approvedAt        DateTime?
-  notes             String?
-  createdBy         String
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  id           String               @id @default(cuid())
+  businessId   String
+  poId         String
+  returnNumber String               @unique
+  returnDate   DateTime
+  reason       String
+  totalAmount  Float
+  status       String               @default("DRAFT")
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  po           PurchaseOrder        @relation(fields: [poId], references: [id])
+  items        PurchaseReturnItem[]
 
   @@unique([businessId, returnNumber])
   @@index([businessId])
-  @@index([purchaseOrderId])
+  @@index([poId])
 }
 
 model PurchaseReturnItem {
-  id                  String            @id @default(uuid())
-  purchaseReturnId    String
-  purchaseReturn      PurchaseReturn    @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
-  purchaseOrderItemId String
-  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
-  quantity            Float
-  reason              String            // DEFECTIVE, EXPIRED, WRONG_ITEM, OVERAGE, OTHER
-  notes               String?
+  id        String         @id @default(cuid())
+  returnId  String
+  productId String
+  quantity  Int
+  unitPrice Float
+  total     Float
+  reason    String?
+  product   Product        @relation(fields: [productId], references: [id])
+  return    PurchaseReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
 
-  @@index([purchaseReturnId])
-  @@index([purchaseOrderItemId])
+  @@index([returnId])
+  @@index([productId])
 }
 
 model SalesInvoice {
