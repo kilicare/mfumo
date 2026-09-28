@@ -11,6 +11,14 @@ export class SalesInvoiceFilterDto {
   customerId?: string;
 
   @IsOptional()
+  @IsString()
+  locationId?: string;
+
+  @IsOptional()
+  @IsString()
+  salespersonId?: string;
+
+  @IsOptional()
   @IsIn(['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'CANCELLED', 'OVERDUE'])
   status?: string;
 
@@ -23,7 +31,7 @@ export class SalesInvoiceFilterDto {
   dateTo?: string;
 
   @IsOptional()
-  @IsIn(['invoiceNumber', 'totalAmount', 'dueDate', 'createdAt'])
+  @IsIn(['invoiceNumber', 'totalAmount', 'invoiceDate', 'dueDate', 'createdAt'])
   sortBy?: string;
 
   @IsOptional()

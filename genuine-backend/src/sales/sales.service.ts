@@ -171,21 +171,23 @@ export class SalesService {
   async getAllSalesInvoices(businessId: string, filter: SalesInvoiceFilterDto) {
     const page = Math.max(1, Math.floor(Number(filter.page) || 1));
     const limit = Math.min(100, Math.max(1, Math.floor(Number(filter.limit) || 20)));
-    const createdAt: Prisma.DateTimeFilter = {};
-    if (filter.dateFrom) createdAt.gte = this.dateBound(filter.dateFrom, false);
-    if (filter.dateTo) createdAt.lt = this.dateBound(filter.dateTo, true);
-    if (createdAt.gte && createdAt.lt && createdAt.gte >= createdAt.lt)
+    const invoiceDate: Prisma.DateTimeFilter = {};
+    if (filter.dateFrom) invoiceDate.gte = this.dateBound(filter.dateFrom, false);
+    if (filter.dateTo) invoiceDate.lt = this.dateBound(filter.dateTo, true);
+    if (invoiceDate.gte && invoiceDate.lt && invoiceDate.gte >= invoiceDate.lt)
       throw new BadRequestException('dateFrom must be on or before dateTo');
     const where: Prisma.SalesInvoiceWhereInput = {
       businessId,
       ...(filter.customerId && { customerId: filter.customerId }),
+      ...(filter.locationId && { locationId: filter.locationId }),
+      ...(filter.salespersonId && { salespersonId: filter.salespersonId }),
       ...(filter.search && {
         OR: [
           { invoiceNumber: { contains: filter.search, mode: 'insensitive' } },
           { customer: { name: { contains: filter.search, mode: 'insensitive' } } },
         ],
       }),
-      ...(Object.keys(createdAt).length > 0 && { createdAt }),
+      ...(Object.keys(invoiceDate).length > 0 && { invoiceDate }),
       ...(filter.status === 'OVERDUE'
         ? {
             status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
@@ -198,6 +200,7 @@ export class SalesService {
     const orderBy: Record<string, Prisma.SalesInvoiceOrderByWithRelationInput> = {
       invoiceNumber: { invoiceNumber: direction },
       totalAmount: { totalAmount: direction },
+      invoiceDate: { invoiceDate: direction },
       dueDate: { dueDate: direction },
       createdAt: { createdAt: direction },
     };
