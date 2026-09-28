@@ -25,6 +25,8 @@ export class SalesInvoiceResponseDto {
   customerType: string;
   locationId: string;
   locationName: string;
+  invoiceDate: Date;
+  salespersonId?: string;
   status: string;
   items: SalesInvoiceItemResponseDto[];
   subtotal: number;
@@ -36,6 +38,7 @@ export class SalesInvoiceResponseDto {
   totalPaid: number;
   balance: number;
   paymentTerms: string;
+  attachments?: string[];
   referenceNumber?: string;
   issuedDate?: Date;
   dueDate?: Date;

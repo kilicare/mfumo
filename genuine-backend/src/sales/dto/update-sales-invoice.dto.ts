@@ -1,6 +1,7 @@
 import {
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsIn,
   IsNumber,
   IsOptional,
@@ -23,6 +24,19 @@ export class UpdateSalesInvoiceDto {
   @IsString()
   @Length(1, 64)
   locationId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  invoiceDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  salespersonId?: string;
 
   @IsOptional()
   @IsArray()
@@ -61,4 +75,9 @@ export class UpdateSalesInvoiceDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  attachments?: string[];
 }

@@ -97,6 +97,8 @@ async function main() {
     { key: 'sales.view', category: 'sales', action: 'view' },
     { key: 'sales.create', category: 'sales', action: 'create' },
     { key: 'sales.edit', category: 'sales', action: 'edit' },
+    { key: 'sales.discount', category: 'sales', action: 'discount' },
+    { key: 'sales.approve', category: 'sales', action: 'approve' },
     { key: 'sales.cancel', category: 'sales', action: 'cancel' },
 
     // Purchases

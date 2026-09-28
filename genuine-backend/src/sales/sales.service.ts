@@ -73,7 +73,18 @@ export class SalesService {
     const taxAmount = money(dto.taxAmount || 0);
     const totalAmount = money(subtotal - discount.amount + taxAmount);
     if (totalAmount < 0) throw new BadRequestException('Invoice total cannot be negative');
-    const invoiceDate = new Date();
+    const invoiceDate = dto.invoiceDate ? this.parseInvoiceDate(dto.invoiceDate) : new Date();
+    const dueDate = dto.dueDate
+      ? this.parseInvoiceDate(dto.dueDate, true)
+      : this.dueDate(invoiceDate, terms);
+    if (dueDate < invoiceDate)
+      throw new BadRequestException('Due date cannot be before invoice date');
+    const salespersonId = dto.salespersonId || userId;
+    const salesperson = await this.prisma.user.findFirst({
+      where: { id: salespersonId, businessId, isActive: true },
+      select: { id: true },
+    });
+    if (!salesperson) throw new NotFoundException('Active salesperson not found');
     let id: string;
     try {
       id = await this.prisma.$transaction(async (tx) => {
@@ -97,7 +108,7 @@ export class SalesService {
             locationId: location.id,
             invoiceNumber,
             invoiceDate,
-            dueDate: this.dueDate(invoiceDate, terms),
+            dueDate,
             status: 'DRAFT',
             subtotal,
             discountAmount: discount.amount,
@@ -107,8 +118,10 @@ export class SalesService {
             totalPaid: 0,
             balance: totalAmount,
             paymentTerms: terms,
+            salespersonId: salesperson.id,
             referenceNumber: dto.referenceNumber,
             notes: dto.notes,
+            attachments: dto.attachments ? JSON.stringify(dto.attachments) : null,
             createdBy: userId,
           },
         });
@@ -228,6 +241,22 @@ export class SalesService {
       const terms = dto.paymentTerms || before.paymentTerms;
       if (!Object.prototype.hasOwnProperty.call(termsDays, terms))
         throw new BadRequestException('Invalid payment terms');
+      const invoiceDate = dto.invoiceDate
+        ? this.parseInvoiceDate(dto.invoiceDate)
+        : before.invoiceDate;
+      const dueDate = dto.dueDate
+        ? this.parseInvoiceDate(dto.dueDate, true)
+        : dto.invoiceDate || dto.paymentTerms
+          ? this.dueDate(invoiceDate, terms)
+          : before.dueDate;
+      if (dueDate && dueDate < invoiceDate)
+        throw new BadRequestException('Due date cannot be before invoice date');
+      const salespersonId = dto.salespersonId || before.salespersonId || userId;
+      const salesperson = await tx.user.findFirst({
+        where: { id: salespersonId, businessId, isActive: true },
+        select: { id: true },
+      });
+      if (!salesperson) throw new NotFoundException('Active salesperson not found');
       const lines = dto.items
         ? await this.prepareLines(businessId, dto.items)
         : before.items.map((i) => ({
@@ -293,8 +322,10 @@ export class SalesService {
         data: {
           customerId,
           locationId,
+          invoiceDate,
           paymentTerms: terms,
-          dueDate: this.dueDate(before.invoiceDate, terms),
+          dueDate,
+          salespersonId: salesperson.id,
           subtotal,
           discountAmount: discount.amount,
           discountPercent: discount.percentage,
@@ -303,6 +334,7 @@ export class SalesService {
           balance: totalAmount,
           ...(dto.referenceNumber !== undefined && { referenceNumber: dto.referenceNumber }),
           ...(dto.notes !== undefined && { notes: dto.notes }),
+          ...(dto.attachments !== undefined && { attachments: JSON.stringify(dto.attachments) }),
         },
       });
       await this.audit(
@@ -954,6 +986,8 @@ export class SalesService {
       customerType: invoice.customer.customerType,
       locationId: invoice.locationId,
       locationName: invoice.location.name,
+      invoiceDate: invoice.invoiceDate,
+      salespersonId: invoice.salespersonId || undefined,
       status,
       items: invoice.items.map((i) => ({
         id: i.id,
@@ -980,6 +1014,7 @@ export class SalesService {
       totalPaid,
       balance,
       paymentTerms: invoice.paymentTerms,
+      attachments: this.parseAttachments(invoice.attachments),
       referenceNumber: invoice.referenceNumber || undefined,
       issuedDate: invoice.issuedDate || undefined,
       dueDate: invoice.dueDate || undefined,
@@ -1082,6 +1117,25 @@ export class SalesService {
     due.setUTCDate(due.getUTCDate() + (termsDays[terms] ?? 0));
     due.setUTCHours(23, 59, 59, 999);
     return due;
+  }
+
+  private parseInvoiceDate(value: string, endOfDay = false): Date {
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const date = isDateOnly ? this.dateBound(value, false) : new Date(value);
+    if (!Number.isFinite(date.getTime())) throw new BadRequestException('Invalid invoice date');
+    if (endOfDay && isDateOnly) date.setUTCHours(23, 59, 59, 999);
+    return date;
+  }
+
+  private parseAttachments(value: string | null): string[] {
+    if (!value) return [];
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')) return parsed;
+    } catch {
+      // Preserve attachment values created before this field used JSON arrays.
+    }
+    return [value];
   }
 
   private dateBound(value: string, exclusiveEnd: boolean): Date {

@@ -71,6 +71,19 @@ export class CreateSalesInvoiceDto {
   @Length(1, 80)
   invoiceNumber?: string;
 
+  @IsOptional()
+  @IsDateString()
+  invoiceDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  salespersonId?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
@@ -107,6 +120,11 @@ export class CreateSalesInvoiceDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  attachments?: string[];
 
   @IsOptional()
   @IsBoolean()
