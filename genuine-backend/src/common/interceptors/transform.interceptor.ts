@@ -4,10 +4,11 @@ import { map } from 'rxjs/operators';
 
 @Injectable()
 export class TransformInterceptor implements NestInterceptor {
-  intercept(_context: ExecutionContext, next: CallHandler): Observable<any> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    const response = context.switchToHttp().getResponse<{ statusCode: number }>();
     return next.handle().pipe(
       map((data) => ({
-        statusCode: 200,
+        statusCode: response.statusCode || 200,
         timestamp: new Date().toISOString(),
         data,
       })),
