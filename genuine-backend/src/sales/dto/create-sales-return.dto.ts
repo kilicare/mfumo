@@ -23,7 +23,7 @@ export class SalesReturnItemDto {
   @Min(0.0001)
   quantity: number;
 
-  @IsIn(['DEFECTIVE', 'EXPIRED', 'WRONG_ITEM', 'CUSTOMER_REQUEST', 'OTHER'])
+  @IsIn(['DEFECTIVE', 'EXPIRED', 'WRONG_ITEM', 'OVERAGE', 'CUSTOMER_REQUEST', 'OTHER'])
   reason: string;
 
   @IsOptional()

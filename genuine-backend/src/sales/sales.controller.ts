@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -105,8 +106,9 @@ export class SalesController {
     @Param('id') id: string,
     @UserId() userId: string,
     @Body() dto: SalesPaymentDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.salesService.createSalesPayment(businessId, id, userId, dto);
+    return this.salesService.createSalesPayment(businessId, id, userId, dto, idempotencyKey);
   }
 
   @Post('invoices/:id/cancel')

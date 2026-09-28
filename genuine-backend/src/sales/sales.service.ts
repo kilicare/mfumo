@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { v4 as uuid } from 'uuid';
 import { LoggerService } from '../common/logger/logger.service';
@@ -505,6 +506,7 @@ export class SalesService {
     invoiceId: string,
     userId: string,
     dto: SalesPaymentDto,
+    idempotencyKey?: string,
   ): Promise<SalesPaymentResponseDto> {
     const paymentDate = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
     if (!Number.isFinite(paymentDate.getTime()))
@@ -523,6 +525,31 @@ export class SalesService {
           }))
         )
           throw new BadRequestException('Active payment method not found');
+        const idempotentPaymentNumber =
+          !dto.paymentNumber && idempotencyKey
+            ? `SP-IDEM-${createHash('sha256')
+                .update(`${businessId}:${idempotencyKey}`)
+                .digest('hex')
+                .slice(0, 32)
+                .toUpperCase()}`
+            : undefined;
+        if (idempotentPaymentNumber) {
+          const existing = await tx.payment.findFirst({
+            where: { businessId, paymentNumber: idempotentPaymentNumber },
+          });
+          if (existing) {
+            const sameRequest =
+              existing.invoiceId === invoiceId &&
+              existing.amount === money(dto.amount) &&
+              existing.paymentMethodId === dto.paymentMethodId &&
+              (existing.reference || undefined) === dto.reference &&
+              (existing.notes || undefined) === dto.notes &&
+              (!dto.paymentDate || existing.paymentDate.getTime() === paymentDate.getTime());
+            if (!sameRequest)
+              throw new ConflictException('Idempotency key was already used for another payment');
+            return existing.id;
+          }
+        }
         const state = await this.invoicePaymentState(tx, invoiceId, invoice.totalAmount);
         if (state.balance <= 0) throw new BadRequestException('Invoice has no amount due');
         const amount = money(dto.amount);
@@ -530,6 +557,7 @@ export class SalesService {
           throw new BadRequestException(`Payment exceeds balance due (${state.balance})`);
         const paymentNumber =
           dto.paymentNumber ||
+          idempotentPaymentNumber ||
           `SP-${new Date().toISOString().slice(0, 7).replace('-', '')}-${uuid().slice(0, 8).toUpperCase()}`;
         const payment = await tx.payment.create({
           data: {
