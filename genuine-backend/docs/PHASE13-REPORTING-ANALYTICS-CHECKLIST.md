@@ -25,11 +25,11 @@ Tumia hii baada ya implementation. Kipimo kimoja kikishindwa simama hapo, rekebi
 - [ ] Pata `/analytics/dashboard/executive`; kagua kipindi, currency, summary, KPI, charts na definitions.
 - [ ] Linganisha `totalRevenue`, expenses, net profit na margin na income statement ya Payments kwa tarehe hizo hizo.
 - [ ] Linganisha receivables/payables/cash position na financial summary ya Payments kwa `asOf` hiyo hiyo.
-- [ ] Linganisha inventory value na costing method na stock valuation report ya Inventory.
+- [ ] Linganisha inventory value na costing method na stock valuation report ya Inventory; thibitisha `inventoryAsOf` inaonyesha muda wa snapshot ya sasa. Date range huchuja flows/charts, haitoi historical inventory valuation.
 - [ ] Thibitisha purchases ni PO volume kwa `orderDate`, si COGS; chart na definition visiiwasilishe kama kitu kilekile.
 - [ ] Hakikisha chart labels na kila series zina idadi sawa; values za chart ziwe data halisi, si placeholders.
 - [ ] Pata `/analytics/dashboard/sales`; linganisha invoice count, revenue, quantity, payments na balance na invoice/payment source records.
-- [ ] Pata `/analytics/dashboard/inventory`; linganisha active products, SKU zenye stock, quantity, valuation, low stock, locations na top movers na inventory source. Tumia dataset yenye zaidi ya stock rows 100 kuthibitisha totals hazikatwi na pagination.
+- [ ] Pata `/analytics/dashboard/inventory`; linganisha active products, SKU zenye stock, quantity, valuation, low stock, locations na top movers na inventory source. Tumia dataset yenye zaidi ya stock rows 100 kuthibitisha totals hazikatwi na pagination; `asOf` ni muda wa snapshot ya sasa.
 - [ ] Jaribu period maalum na date range; dashboard itumie tarehe hizo tu na ireject period pamoja na date filters.
 
 ## 3. KPIs na historia
@@ -70,7 +70,7 @@ Tumia hii baada ya implementation. Kipimo kimoja kikishindwa simama hapo, rekebi
 - [ ] Linganisha expense breakdown na approved/paid expenses pamoja na item/category allocations; draft/rejected zisihesabiwe.
 - [ ] Thibitisha budgets, variance na variance percent kwa monthly/quarterly/yearly; bila budget response isitoe Infinity/NaN.
 - [ ] Linganisha periods kwa accounting period IDs na kwa date ranges; periods zote lazima ziwe Business A.
-- [ ] Hakikisha difference na percent change zinashughulikia baseline ya sifuri na status ya `IMPROVED/DECLINED/NO_CHANGE` kwa mwelekeo unaofaa kwa metric.
+- [ ] Hakikisha difference na percent change zinashughulikia baseline ya sifuri; comparison status huonyesha mwelekeo wa namba (`INCREASED`, `DECREASED`, `NO_CHANGE`), hivyo itafsiriwe kulingana na metric.
 
 ## 7. Export za report
 
@@ -80,6 +80,7 @@ Tumia hii baada ya implementation. Kipimo kimoja kikishindwa simama hapo, rekebi
 - [ ] Hakikisha CSV inakimbia formula injection kwa cell zinazoanza na `=`, `+`, `-`, `@`, tab au carriage return.
 - [ ] Jaribu report type/format/file name isiyokubalika; irudishe `400` bila audit ya export iliyofanikiwa.
 - [ ] Thibitisha export zote zinafuata date range/period filters, pamoja na receivables/payables as-of date.
+- [ ] Product/customer/supplier exports zijumuishe rows zote hadi 10,000; zikizidi, zipokee `400` ya wazi badala ya export iliyokatwa kimya kimya.
 
 ## 8. Audit, errors na uthabiti
 
@@ -96,5 +97,5 @@ Tumia hii baada ya implementation. Kipimo kimoja kikishindwa simama hapo, rekebi
 - COGS: inventory SALE/reversal/customer-return movement costs; purchases ni PO volume na hazitumiki kama mbadala wa COGS.
 - Expenses: expenses za `APPROVED` au `PAID`; draft/rejected hazitambuliwi kama gharama.
 - Receivable/payable/cash: snapshot ya mwisho wa range, kutoka Payments financial summary.
-- Inventory value: Inventory valuation service na costing method ya business.
+- Inventory value: Inventory valuation service na costing method ya business, kama snapshot ya sasa (`inventoryAsOf`), hata pale charts zinapotumia date range ya zamani.
 - Forecast confidence ni makadirio yanayotokana na historical residuals; mfumo hauahidi matokeo yajayo.

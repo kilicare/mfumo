@@ -49,29 +49,54 @@ export class AnalyticsService {
   async getExecutiveDashboard(businessId: string, filter: DashboardFilterDto) {
     const { range, currency } = await this.context(businessId, filter);
     const previous = this.previousRange(range);
-    const [statement, previousStatement, balance, valuation, invoices, purchaseOrders] =
-      await Promise.all([
-        this.payments.getIncomeStatement(businessId, this.asFinancialFilter(range)),
-        this.payments.getIncomeStatement(businessId, this.asFinancialFilter(previous)),
-        this.payments.getFinancialSummary(businessId, { dateAs: range.endDate.toISOString() }),
-        this.inventory.getStockValuationReport(businessId, { page: 1, limit: 100 }),
-        this.prisma.salesInvoice.findMany({
-          where: {
-            businessId,
-            status: { in: RECOGNIZED_INVOICE_STATUSES },
-            issuedDate: { gte: range.startDate, lte: range.endDate },
-          },
-          select: { id: true, totalAmount: true },
-        }),
-        this.prisma.purchaseOrder.aggregate({
-          where: {
-            businessId,
-            status: { notIn: ['DRAFT', 'CANCELLED'] },
-            orderDate: { gte: range.startDate, lte: range.endDate },
-          },
-          _sum: { totalAmount: true },
-        }),
-      ]);
+    const [
+      statement,
+      previousStatement,
+      balance,
+      previousBalance,
+      valuation,
+      invoices,
+      previousInvoiceCount,
+      purchaseOrders,
+      previousPurchaseOrders,
+    ] = await Promise.all([
+      this.payments.getIncomeStatement(businessId, this.asFinancialFilter(range)),
+      this.payments.getIncomeStatement(businessId, this.asFinancialFilter(previous)),
+      this.payments.getFinancialSummary(businessId, { dateAs: range.endDate.toISOString() }),
+      this.payments.getFinancialSummary(businessId, { dateAs: previous.endDate.toISOString() }),
+      this.inventory.getStockValuationReport(businessId, { page: 1, limit: 100 }),
+      this.prisma.salesInvoice.findMany({
+        where: {
+          businessId,
+          status: { in: RECOGNIZED_INVOICE_STATUSES },
+          issuedDate: { gte: range.startDate, lte: range.endDate },
+        },
+        select: { id: true, totalAmount: true },
+      }),
+      this.prisma.salesInvoice.count({
+        where: {
+          businessId,
+          status: { in: RECOGNIZED_INVOICE_STATUSES },
+          issuedDate: { gte: previous.startDate, lte: previous.endDate },
+        },
+      }),
+      this.prisma.purchaseOrder.aggregate({
+        where: {
+          businessId,
+          status: { notIn: ['DRAFT', 'CANCELLED'] },
+          orderDate: { gte: range.startDate, lte: range.endDate },
+        },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.purchaseOrder.aggregate({
+        where: {
+          businessId,
+          status: { notIn: ['DRAFT', 'CANCELLED'] },
+          orderDate: { gte: previous.startDate, lte: previous.endDate },
+        },
+        _sum: { totalAmount: true },
+      }),
+    ]);
 
     const salesTrend = await this.series(businessId, 'REVENUE', range, filter.groupBy || 'MONTHLY');
     const expenseTrend = await this.series(
@@ -128,27 +153,44 @@ export class AnalyticsService {
         '%',
         previousStatement.netMarginPercentage,
       ),
-      totalSales: this.metric('Invoices Issued', invoices.length, 'Invoices', 0),
+      totalSales: this.metric('Invoices Issued', invoices.length, 'Invoices', previousInvoiceCount),
       totalPurchases: this.metric(
         'Non-draft Purchase Orders',
         round(purchaseOrders._sum.totalAmount || 0),
         currency,
-        0,
+        round(previousPurchaseOrders._sum.totalAmount || 0),
       ),
-      cashOnHand: this.metric('Net Cash Position', balance.cashOnHand, currency, 0),
+      cashOnHand: this.metric(
+        'Net Cash Position',
+        balance.cashOnHand,
+        currency,
+        previousBalance.cashOnHand,
+      ),
       outstandingReceivables: this.metric(
         'Outstanding Receivables',
         balance.totalReceivables,
         currency,
-        0,
+        previousBalance.totalReceivables,
       ),
-      outstandingPayables: this.metric('Outstanding Payables', balance.totalPayables, currency, 0),
-      inventoryValue: this.metric('Inventory Value', valuation.totalValue, currency, 0),
+      outstandingPayables: this.metric(
+        'Outstanding Payables',
+        balance.totalPayables,
+        currency,
+        previousBalance.totalPayables,
+      ),
+      inventoryValue: this.metric(
+        'Inventory Value',
+        valuation.totalValue,
+        currency,
+        valuation.totalValue,
+        'Current inventory valuation snapshot; not compared to historical stock value.',
+      ),
     };
 
     return {
       period: range.periodName,
       asOf: range.endDate,
+      inventoryAsOf: new Date(),
       currency,
       summary,
       kpis,
@@ -188,6 +230,8 @@ export class AnalyticsService {
         cashPosition:
           'Cumulative active ledger inflows minus outflows through the selected as-of date.',
         inventoryValue: `Inventory service valuation using ${valuation.costingMethod}.`,
+        inventoryValuationTiming:
+          'Current stock snapshot at inventoryAsOf; selected date range applies to period flows, not historical inventory valuation.',
       },
     };
   }
@@ -203,7 +247,7 @@ export class AnalyticsService {
       include: { customer: true, items: true },
     });
     const ids = invoices.map((invoice) => invoice.id);
-    const [returns, payments] = await Promise.all([
+    const [returnsToPeriodInvoices, periodReturns, payments] = await Promise.all([
       ids.length
         ? this.prisma.salesReturn.findMany({
             where: {
@@ -214,6 +258,14 @@ export class AnalyticsService {
             },
           })
         : Promise.resolve([]),
+      this.prisma.salesReturn.findMany({
+        where: {
+          businessId,
+          status: { in: RECOGNIZED_RETURN_STATUSES },
+          returnDate: { gte: range.startDate, lte: range.endDate },
+        },
+        include: { items: true, invoice: { include: { customer: true } } },
+      }),
       ids.length
         ? this.prisma.payment.findMany({
             where: {
@@ -226,7 +278,7 @@ export class AnalyticsService {
         : Promise.resolve([]),
     ]);
     const returnByInvoice = this.sumBy(
-      returns,
+      returnsToPeriodInvoices,
       (row) => row.invoiceId,
       (row) => row.totalAmount,
     );
@@ -235,8 +287,13 @@ export class AnalyticsService {
       (row) => row.invoiceId!,
       (row) => row.amount,
     );
+    const periodReturnAmount = periodReturns.reduce((sum, row) => sum + row.totalAmount, 0);
+    const periodReturnQuantity = periodReturns.reduce(
+      (sum, row) => sum + row.items.reduce((itemSum, item) => itemSum + item.quantity, 0),
+      0,
+    );
     const revenue = round(
-      invoices.reduce((sum, row) => sum + row.totalAmount - (returnByInvoice.get(row.id) || 0), 0),
+      invoices.reduce((sum, row) => sum + row.totalAmount, 0) - periodReturnAmount,
     );
     const outstanding = round(
       invoices.reduce(
@@ -255,7 +312,7 @@ export class AnalyticsService {
       invoices.reduce(
         (sum, invoice) => sum + invoice.items.reduce((itemSum, item) => itemSum + item.quantity, 0),
         0,
-      ),
+      ) - periodReturnQuantity,
     );
     const customerRows = new Map<
       string,
@@ -271,6 +328,18 @@ export class AnalyticsService {
       existing.revenue += invoice.totalAmount - (returnByInvoice.get(invoice.id) || 0);
       existing.invoiceCount += 1;
       customerRows.set(invoice.customerId, existing);
+    }
+    for (const returned of periodReturns) {
+      const customerId = returned.customerId || returned.invoice.customerId;
+      const customerName = returned.invoice.customer.name;
+      const existing = customerRows.get(customerId) || {
+        customerId,
+        customerName,
+        revenue: 0,
+        invoiceCount: 0,
+      };
+      existing.revenue -= returned.totalAmount;
+      customerRows.set(customerId, existing);
     }
     const topCustomers = [...customerRows.values()]
       .sort((a, b) => b.revenue - a.revenue || a.customerName.localeCompare(b.customerName))
@@ -335,7 +404,7 @@ export class AnalyticsService {
     }
     return {
       period: range.periodName,
-      asOf: range.endDate,
+      asOf: new Date(),
       metrics: {
         activeProducts: products.length,
         stockKeepingUnitsWithStock: new Set(
@@ -372,7 +441,7 @@ export class AnalyticsService {
 
   async getKPIDetail(businessId: string, name: string, filter: KPIFilterDto) {
     const range = await this.getDateRange(businessId, filter);
-    const historyRanges = await this.kpiHistoryRanges(businessId, range);
+    const historyRanges = this.kpiHistoryRanges(range);
     const business = await this.businessInfo(businessId);
     const allowed = new Set([
       'Total Revenue',
@@ -402,10 +471,11 @@ export class AnalyticsService {
           value: point.value,
         });
     }
-    const previous = history[history.length - 2]?.value || 0;
     const metric = (await this.calculateKpis(businessId, range, business.currency, 'ALL')).find(
       (item) => item.name === name,
     )!;
+    history.push({ period: range.periodName, date: range.endDate, value: metric.value });
+    const previous = history[history.length - 2]?.value || 0;
     return {
       ...metric,
       currentValue: metric.value,
@@ -705,7 +775,7 @@ export class AnalyticsService {
     const customers = await this.prisma.customer.findMany({
       where: { businessId, isActive: true },
     });
-    const [invoices, historicalInvoices] = await Promise.all([
+    const [invoices, historicalInvoices, periodReturns] = await Promise.all([
       this.prisma.salesInvoice.findMany({
         where: {
           businessId,
@@ -713,14 +783,7 @@ export class AnalyticsService {
           status: { in: RECOGNIZED_INVOICE_STATUSES },
           issuedDate: { gte: range.startDate, lte: range.endDate },
         },
-        include: {
-          returns: {
-            where: {
-              status: { in: RECOGNIZED_RETURN_STATUSES },
-              returnDate: { gte: range.startDate, lte: range.endDate },
-            },
-          },
-        },
+        select: { customerId: true, totalAmount: true, issuedDate: true },
       }),
       this.prisma.salesInvoice.findMany({
         where: {
@@ -731,6 +794,15 @@ export class AnalyticsService {
         },
         select: { customerId: true, issuedDate: true },
         orderBy: { issuedDate: 'desc' },
+      }),
+      this.prisma.salesReturn.findMany({
+        where: {
+          businessId,
+          status: { in: RECOGNIZED_RETURN_STATUSES },
+          returnDate: { gte: range.startDate, lte: range.endDate },
+          invoice: { customerId: { in: customers.map((customer) => customer.id) } },
+        },
+        include: { invoice: { select: { customerId: true } } },
       }),
     ]);
     const byCustomer = new Map<string, { revenue: number; count: number; latest: Date | null }>();
@@ -746,11 +818,15 @@ export class AnalyticsService {
     }
     for (const invoice of invoices) {
       const state = byCustomer.get(invoice.customerId) || { revenue: 0, count: 0, latest: null };
-      state.revenue +=
-        invoice.totalAmount -
-        invoice.returns.reduce((sum, returned) => sum + returned.totalAmount, 0);
+      state.revenue += invoice.totalAmount;
       state.count += 1;
       byCustomer.set(invoice.customerId, state);
+    }
+    for (const returned of periodReturns) {
+      const customerId = returned.customerId || returned.invoice.customerId;
+      const state = byCustomer.get(customerId) || { revenue: 0, count: 0, latest: null };
+      state.revenue -= returned.totalAmount;
+      byCustomer.set(customerId, state);
     }
     const revenueRanks = [...byCustomer.values()].map((row) => row.revenue).sort((a, b) => a - b);
     const countRanks = [...byCustomer.values()].map((row) => row.count).sort((a, b) => a - b);
@@ -1061,15 +1137,45 @@ export class AnalyticsService {
       case 'KPI':
         report = await this.getKPIs(businessId, { ...common, category: filter.category });
         break;
-      case 'PRODUCT_PERFORMANCE':
-        report = await this.getProductPerformance(businessId, { ...common, page: 1, limit: 100 });
+      case 'PRODUCT_PERFORMANCE': {
+        const productReport = await this.getProductPerformance(businessId, {
+          ...common,
+          page: 1,
+          limit: 10000,
+        });
+        if (productReport.total > 10000)
+          throw new BadRequestException(
+            'Product export exceeds 10,000 rows; narrow the date range',
+          );
+        report = productReport;
         break;
-      case 'CUSTOMER_ANALYTICS':
-        report = await this.getCustomerAnalytics(businessId, { ...common, page: 1, limit: 100 });
+      }
+      case 'CUSTOMER_ANALYTICS': {
+        const customerReport = await this.getCustomerAnalytics(businessId, {
+          ...common,
+          page: 1,
+          limit: 10000,
+        });
+        if (customerReport.total > 10000)
+          throw new BadRequestException(
+            'Customer export exceeds 10,000 rows; narrow the date range',
+          );
+        report = customerReport;
         break;
-      case 'SUPPLIER_ANALYTICS':
-        report = await this.getSupplierAnalytics(businessId, { ...common, page: 1, limit: 100 });
+      }
+      case 'SUPPLIER_ANALYTICS': {
+        const supplierReport = await this.getSupplierAnalytics(businessId, {
+          ...common,
+          page: 1,
+          limit: 10000,
+        });
+        if (supplierReport.total > 10000)
+          throw new BadRequestException(
+            'Supplier export exceeds 10,000 rows; narrow the date range',
+          );
+        report = supplierReport;
         break;
+      }
       case 'SALES_BY_CHANNEL':
         report = await this.getSalesByChannel(businessId, common);
         break;
@@ -1281,38 +1387,53 @@ export class AnalyticsService {
     category: KPIFilterDto['category'] | string,
   ) {
     const previousRange = this.previousRange(range);
-    const [statement, previousStatement, balance, valuation, invoiceCount, soldQuantity] =
-      await Promise.all([
-        this.payments.getIncomeStatement(businessId, this.asFinancialFilter(range)),
-        this.payments.getIncomeStatement(businessId, this.asFinancialFilter(previousRange)),
-        this.payments.getFinancialSummary(businessId, { dateAs: range.endDate.toISOString() }),
-        this.inventory.getStockValuationReport(businessId, { page: 1, limit: 100 }),
-        this.prisma.salesInvoice.count({
-          where: {
-            businessId,
-            status: { in: RECOGNIZED_INVOICE_STATUSES },
-            issuedDate: { gte: range.startDate, lte: range.endDate },
-          },
-        }),
-        Promise.all([
-          this.series(businessId, 'SALES_QUANTITY', range, 'MONTHLY'),
-          this.series(businessId, 'SALES_QUANTITY', previousRange, 'MONTHLY'),
-        ]),
-      ]);
+    const [
+      statement,
+      previousStatement,
+      balance,
+      previousBalance,
+      valuation,
+      invoiceCount,
+      previousInvoiceCount,
+      soldQuantity,
+    ] = await Promise.all([
+      this.payments.getIncomeStatement(businessId, this.asFinancialFilter(range)),
+      this.payments.getIncomeStatement(businessId, this.asFinancialFilter(previousRange)),
+      this.payments.getFinancialSummary(businessId, { dateAs: range.endDate.toISOString() }),
+      this.payments.getFinancialSummary(businessId, {
+        dateAs: previousRange.endDate.toISOString(),
+      }),
+      this.inventory.getStockValuationReport(businessId, { page: 1, limit: 100 }),
+      this.prisma.salesInvoice.count({
+        where: {
+          businessId,
+          status: { in: RECOGNIZED_INVOICE_STATUSES },
+          issuedDate: { gte: range.startDate, lte: range.endDate },
+        },
+      }),
+      this.prisma.salesInvoice.count({
+        where: {
+          businessId,
+          status: { in: RECOGNIZED_INVOICE_STATUSES },
+          issuedDate: { gte: previousRange.startDate, lte: previousRange.endDate },
+        },
+      }),
+      Promise.all([
+        this.series(businessId, 'SALES_QUANTITY', range, 'MONTHLY'),
+        this.series(businessId, 'SALES_QUANTITY', previousRange, 'MONTHLY'),
+      ]),
+    ]);
     const sold = round(soldQuantity[0].reduce((sum, point) => sum + point.value, 0));
     const previousSold = round(soldQuantity[1].reduce((sum, point) => sum + point.value, 0));
     const grossProfit = round(statement.revenue - statement.costOfGoodsSold);
     const previousGross = round(previousStatement.revenue - previousStatement.costOfGoodsSold);
-    const previousInvoiceCount = await this.prisma.salesInvoice.count({
-      where: {
-        businessId,
-        status: { in: RECOGNIZED_INVOICE_STATUSES },
-        issuedDate: { gte: previousRange.startDate, lte: previousRange.endDate },
-      },
-    });
     const inventoryTurnover =
       valuation.totalValue > MONEY_EPSILON
         ? round(statement.costOfGoodsSold / valuation.totalValue)
+        : 0;
+    const previousInventoryTurnover =
+      valuation.totalValue > MONEY_EPSILON
+        ? round(previousStatement.costOfGoodsSold / valuation.totalValue)
         : 0;
     const all = [
       this.metric(
@@ -1382,28 +1503,28 @@ export class AnalyticsService {
         'Inventory Turnover',
         inventoryTurnover,
         'Times',
-        0,
+        previousInventoryTurnover,
         'Period COGS divided by current inventory value; an operational proxy, not average-inventory accounting turnover.',
       ),
       this.metric(
         'Outstanding Receivables',
         balance.totalReceivables,
         currency,
-        0,
+        previousBalance.totalReceivables,
         'Open issued sales invoices as of period end.',
       ),
       this.metric(
         'Outstanding Payables',
         balance.totalPayables,
         currency,
-        0,
+        previousBalance.totalPayables,
         'Open non-draft purchase orders as of period end.',
       ),
       this.metric(
         'Net Cash Position',
         balance.cashOnHand,
         currency,
-        0,
+        previousBalance.cashOnHand,
         'Cumulative active payment-ledger inflows less outflows as of period end.',
       ),
       this.metric(
@@ -1431,23 +1552,17 @@ export class AnalyticsService {
     return all.filter((item) => groups[category]?.includes(item.name));
   }
 
-  private async kpiHistoryRanges(businessId: string, current: DateRange): Promise<DateRange[]> {
-    const periods = await this.prisma.accountingPeriod.findMany({
-      where: { businessId, endDate: { lte: current.endDate } },
-      orderBy: { endDate: 'desc' },
-      take: 12,
-    });
-    if (periods.length)
-      return periods.reverse().map((period) => ({
-        startDate: period.startDate,
-        endDate: period.endDate,
-        periodName: period.period,
-      }));
-    const endBucket = this.floorBucket(current.endDate, 'MONTHLY');
-    return Array.from({ length: 12 }, (_, index) => {
-      const startDate = this.addBucket(endBucket, 'MONTHLY', index - 11);
-      const endDate = new Date(this.addBucket(startDate, 'MONTHLY', 1).getTime() - 1);
-      return { startDate, endDate, periodName: this.bucketLabel(startDate, 'MONTHLY') };
+  private kpiHistoryRanges(current: DateRange): DateRange[] {
+    const duration = current.endDate.getTime() - current.startDate.getTime() + 1;
+    return Array.from({ length: 11 }, (_, index) => {
+      const periodsBack = 11 - index;
+      const startDate = new Date(current.startDate.getTime() - duration * periodsBack);
+      const endDate = new Date(current.startDate.getTime() - duration * (periodsBack - 1) - 1);
+      return {
+        startDate,
+        endDate,
+        periodName: `${startDate.toISOString()} to ${endDate.toISOString()}`,
+      };
     });
   }
 
@@ -1522,7 +1637,10 @@ export class AnalyticsService {
     if (metric === 'EXPENSES' || metric === 'PROFIT') {
       for (const expense of expenses) {
         const key = bucketFor(expense.expenseDate);
-        if (values.has(key)) values.set(key, values.get(key)! + expense.amount);
+        if (values.has(key)) {
+          const sign = metric === 'PROFIT' ? -1 : 1;
+          values.set(key, values.get(key)! + expense.amount * sign);
+        }
       }
     }
     if (metric === 'SALES_QUANTITY') {
@@ -1707,40 +1825,36 @@ export class AnalyticsService {
     range: DateRange,
     channelBy: 'LOCATION' | 'SALESPERSON' | 'CUSTOMER_TYPE',
   ) {
-    const invoices = await this.prisma.salesInvoice.findMany({
-      where: {
-        businessId,
-        status: { in: RECOGNIZED_INVOICE_STATUSES },
-        issuedDate: { gte: range.startDate, lte: range.endDate },
-      },
-      include: { location: true, customer: true, items: true },
-    });
-    if (!invoices.length) return [];
+    const [invoices, returns] = await Promise.all([
+      this.prisma.salesInvoice.findMany({
+        where: {
+          businessId,
+          status: { in: RECOGNIZED_INVOICE_STATUSES },
+          issuedDate: { gte: range.startDate, lte: range.endDate },
+        },
+        include: { location: true, customer: true, items: true },
+      }),
+      this.prisma.salesReturn.findMany({
+        where: {
+          businessId,
+          status: { in: RECOGNIZED_RETURN_STATUSES },
+          returnDate: { gte: range.startDate, lte: range.endDate },
+        },
+        include: {
+          items: true,
+          invoice: { include: { location: true, customer: true, items: true } },
+        },
+      }),
+    ]);
+    if (!invoices.length && !returns.length) return [];
     const invoiceIds = invoices.map((invoice) => invoice.id);
-    const returns = await this.prisma.salesReturn.findMany({
-      where: {
-        businessId,
-        invoiceId: { in: invoiceIds },
-        status: { in: RECOGNIZED_RETURN_STATUSES },
-        returnDate: { gte: range.startDate, lte: range.endDate },
-      },
-      include: { items: true },
-    });
-    const returnByInvoice = this.sumBy(
-      returns,
-      (item) => item.invoiceId,
-      (item) => item.totalAmount,
-    );
-    const returnQtyByInvoice = new Map<string, number>();
-    for (const returned of returns)
-      returnQtyByInvoice.set(
-        returned.invoiceId,
-        (returnQtyByInvoice.get(returned.invoiceId) || 0) +
-          returned.items.reduce((sum, item) => sum + item.quantity, 0),
-      );
+    const relatedInvoices = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+    for (const returned of returns) relatedInvoices.set(returned.invoiceId, returned.invoice);
     const userIds = [
       ...new Set(
-        invoices.map((invoice) => invoice.salespersonId).filter((id): id is string => Boolean(id)),
+        [...relatedInvoices.values()]
+          .map((invoice) => invoice.salespersonId)
+          .filter((id): id is string => Boolean(id)),
       ),
     ];
     const users = userIds.length
@@ -1753,7 +1867,7 @@ export class AnalyticsService {
       users.map((user) => [user.id, [user.firstName, user.lastName].filter(Boolean).join(' ')]),
     );
     const invoiceToChannel = new Map<string, { id: string; name: string }>();
-    for (const invoice of invoices) {
+    for (const invoice of relatedInvoices.values()) {
       let id: string;
       let name: string;
       if (channelBy === 'LOCATION') {
@@ -1783,20 +1897,6 @@ export class AnalyticsService {
       include: { product: { select: { buyingPrice: true } } },
     });
     const returnToInvoice = new Map(returns.map((item) => [item.id, item.invoiceId]));
-    const cogsByInvoice = new Map<string, number>();
-    for (const movement of movements) {
-      const invoiceId =
-        movement.referenceType === 'SalesReturn'
-          ? returnToInvoice.get(movement.referenceId || '')
-          : movement.referenceId;
-      if (!invoiceId) continue;
-      const sign = movement.type === 'SALE' ? 1 : -1;
-      cogsByInvoice.set(
-        invoiceId,
-        (cogsByInvoice.get(invoiceId) || 0) +
-          Math.abs(movement.quantity) * (movement.unitCost ?? movement.product.buyingPrice) * sign,
-      );
-    }
     const grouped = new Map<
       string,
       {
@@ -1808,8 +1908,7 @@ export class AnalyticsService {
         transactionCount: number;
       }
     >();
-    for (const invoice of invoices) {
-      const channel = invoiceToChannel.get(invoice.id)!;
+    const getChannelRow = (channel: { id: string; name: string }) => {
       const row = grouped.get(channel.id) || {
         channelId: channel.id,
         channel: channel.name,
@@ -1818,17 +1917,36 @@ export class AnalyticsService {
         profit: 0,
         transactionCount: 0,
       };
-      const netRevenue = invoice.totalAmount - (returnByInvoice.get(invoice.id) || 0);
-      const quantity =
-        invoice.items.reduce((sum, item) => sum + item.quantity, 0) -
-        (returnQtyByInvoice.get(invoice.id) || 0);
-      const cogs = cogsByInvoice.get(invoice.id) || 0;
-      row.revenue += netRevenue;
-      row.quantity += quantity;
-      row.profit += netRevenue - cogs;
-      row.transactionCount += 1;
       grouped.set(channel.id, row);
+      return row;
+    };
+    for (const invoice of invoices) {
+      const channel = invoiceToChannel.get(invoice.id)!;
+      const row = getChannelRow(channel);
+      row.revenue += invoice.totalAmount;
+      row.quantity += invoice.items.reduce((sum, item) => sum + item.quantity, 0);
+      row.transactionCount += 1;
     }
+    for (const returned of returns) {
+      const channel = invoiceToChannel.get(returned.invoiceId);
+      if (!channel) continue;
+      const row = getChannelRow(channel);
+      row.revenue -= returned.totalAmount;
+      row.quantity -= returned.items.reduce((sum, item) => sum + item.quantity, 0);
+    }
+    for (const movement of movements) {
+      const invoiceId =
+        movement.referenceType === 'SalesReturn'
+          ? returnToInvoice.get(movement.referenceId || '')
+          : movement.referenceId;
+      const channel = invoiceId ? invoiceToChannel.get(invoiceId) : undefined;
+      if (!channel) continue;
+      const cost =
+        Math.abs(movement.quantity) * (movement.unitCost ?? movement.product.buyingPrice);
+      const signedCost = movement.type === 'SALE' ? cost : -cost;
+      getChannelRow(channel).profit -= signedCost;
+    }
+    for (const row of grouped.values()) row.profit += row.revenue;
     return [...grouped.values()].map((row) => ({
       ...row,
       revenue: round(row.revenue),
