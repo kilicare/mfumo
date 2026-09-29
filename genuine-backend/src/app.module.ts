@@ -31,6 +31,7 @@ import { PurchasesModule } from './purchases/purchases.module';
 import { SalesModule } from './sales/sales.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PaymentsModule } from './payments/payments.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 // Controllers
 import { AppController } from './app.controller';
@@ -51,6 +52,7 @@ import { AppController } from './app.controller';
     SalesModule,
     InventoryModule,
     PaymentsModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [
