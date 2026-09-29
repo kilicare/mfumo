@@ -6,6 +6,7 @@ import {
   ValidateNested,
   Min,
   IsDate,
+  IsDateString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -41,6 +42,14 @@ export class GRNItemUpdateDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  batchNumber?: string;
+
+  @IsOptional()
+  @IsDateString()
+  expiryDate?: string;
 }
 
 export class UpdateGRNDto {

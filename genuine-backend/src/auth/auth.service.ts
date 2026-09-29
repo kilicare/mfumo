@@ -148,6 +148,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Bring older businesses' built-in roles up to date as new permissions ship.
+    await this._createDefaultRolesAndPermissions(user.businessId);
+    const refreshedUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      include: {
+        userRoles: { include: { role: { include: { permissions: true } } } },
+      },
+    });
+    if (refreshedUser) Object.assign(user, refreshedUser);
+
     const tokens = await this._generateTokens(user.id, user.email, user.businessId, user);
 
     const refreshTokenHash = await bcrypt.hash(tokens.refreshToken, 10);
@@ -450,11 +460,8 @@ export class AuthService {
   private async _createDefaultRolesAndPermissions(businessId: string) {
     const existingRoles = await this.prisma.role.findMany({
       where: { businessId },
+      include: { permissions: { select: { id: true, key: true } } },
     });
-
-    if (existingRoles.length > 0) {
-      return existingRoles;
-    }
 
     const permissionsData = [
       { key: 'products.view', category: 'Products', action: 'view' },
@@ -490,6 +497,8 @@ export class AuthService {
       { key: 'expenses.create', category: 'Expenses', action: 'create' },
       { key: 'expenses.edit', category: 'Expenses', action: 'edit' },
       { key: 'expenses.delete', category: 'Expenses', action: 'delete' },
+      { key: 'expenses.approve', category: 'Expenses', action: 'approve' },
+      { key: 'expenses.pay', category: 'Expenses', action: 'pay' },
       { key: 'reports.view', category: 'Reports', action: 'view' },
       { key: 'reports.export', category: 'Reports', action: 'export' },
       { key: 'users.view', category: 'Users', action: 'view' },
@@ -502,22 +511,26 @@ export class AuthService {
       { key: 'audit.view', category: 'Audit', action: 'view' },
     ];
 
-    const createdPermissions = await Promise.all(
-      permissionsData.map((p) =>
-        this.prisma.permission.create({
-          data: {
-            id: uuid(),
-            business: {
-              connect: { id: businessId },
-            },
-            key: p.key,
-            name: p.key.replace('_', ' ').toUpperCase(),
-            category: p.category,
-            action: p.action,
-          },
-        }),
-      ),
-    );
+    const existingPermissions = await this.prisma.permission.findMany({
+      where: { businessId },
+      select: { id: true, key: true },
+    });
+    const existingPermissionKeys = new Set(existingPermissions.map((p) => p.key));
+    const missingPermissions = permissionsData.filter((p) => !existingPermissionKeys.has(p.key));
+    if (missingPermissions.length) {
+      await this.prisma.permission.createMany({
+        data: missingPermissions.map((p) => ({
+          id: uuid(),
+          businessId,
+          key: p.key,
+          name: p.key.replace('_', ' ').toUpperCase(),
+          category: p.category,
+          action: p.action,
+        })),
+        skipDuplicates: true,
+      });
+    }
+    const createdPermissions = await this.prisma.permission.findMany({ where: { businessId } });
 
     const rolesConfig = [
       {
@@ -562,6 +575,8 @@ export class AuthService {
           'expenses.view',
           'expenses.create',
           'expenses.edit',
+          'expenses.approve',
+          'expenses.pay',
           'reports.view',
           'reports.export',
           'audit.view',
@@ -585,26 +600,41 @@ export class AuthService {
       },
     ];
 
-    const roles = await Promise.all(
-      rolesConfig.map((roleConfig) =>
-        this.prisma.role.create({
-          data: {
-            id: uuid(),
-            businessId,
-            name: roleConfig.name,
-            isSystem: roleConfig.isSystem,
-            permissions: {
-              connect: createdPermissions
-                .filter((p) => roleConfig.permissionKeys.includes(p.key))
-                .map((p) => ({ id: p.id })),
+    const roles = [];
+    for (const roleConfig of rolesConfig) {
+      const current = existingRoles.find((role) => role.name === roleConfig.name);
+      const desired = createdPermissions.filter((p) => roleConfig.permissionKeys.includes(p.key));
+      const currentPermissionIds = new Set(current?.permissions.map((p) => p.id) || []);
+      const missingRolePermissions = desired.filter(
+        (permission) => !currentPermissionIds.has(permission.id),
+      );
+      if (current) {
+        roles.push(
+          missingRolePermissions.length
+            ? await this.prisma.role.update({
+                where: { id: current.id },
+                data: {
+                  permissions: { connect: missingRolePermissions.map((p) => ({ id: p.id })) },
+                },
+                include: { permissions: true },
+              })
+            : current,
+        );
+      } else {
+        roles.push(
+          await this.prisma.role.create({
+            data: {
+              id: uuid(),
+              businessId,
+              name: roleConfig.name,
+              isSystem: roleConfig.isSystem,
+              permissions: { connect: desired.map((p) => ({ id: p.id })) },
             },
-          },
-          include: {
-            permissions: true,
-          },
-        }),
-      ),
-    );
+            include: { permissions: true },
+          }),
+        );
+      }
+    }
 
     this.logger.log(`[AUTH] Default roles & permissions created for business: ${businessId}`);
 

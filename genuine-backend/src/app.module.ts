@@ -29,6 +29,8 @@ import { SuppliersCustomersModule } from './suppliers-customers/suppliers-custom
 // Purchases
 import { PurchasesModule } from './purchases/purchases.module';
 import { SalesModule } from './sales/sales.module';
+import { InventoryModule } from './inventory/inventory.module';
+import { PaymentsModule } from './payments/payments.module';
 
 // Controllers
 import { AppController } from './app.controller';
@@ -47,6 +49,8 @@ import { AppController } from './app.controller';
     SuppliersCustomersModule,
     PurchasesModule,
     SalesModule,
+    InventoryModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [

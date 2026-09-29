@@ -56,6 +56,8 @@ export class GRNItemResponseDto {
   rejectedQuantity: number;
   damageQuantity: number;
   notes?: string;
+  batchNumber?: string;
+  expiryDate?: Date;
 }
 
 export class GRNResponseDto {

@@ -50,7 +50,7 @@ export class BusinessService {
       },
     });
 
-    if (user.businessId !== businessId) {
+    if (!user || user.businessId !== businessId) {
       throw new ForbiddenException('Not authorized to setup this business');
     }
 
@@ -192,6 +192,14 @@ export class BusinessService {
             id: uuid(),
             businessId,
             name: category,
+            code: category
+              .normalize('NFKD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .trim()
+              .toUpperCase()
+              .replace(/[^A-Z0-9]+/g, '_')
+              .replace(/^_+|_+$/g, '')
+              .slice(0, 32),
             isActive: true,
           },
         });
@@ -396,7 +404,7 @@ export class BusinessService {
       },
     });
 
-    if (user.businessId !== businessId) {
+    if (!user || user.businessId !== businessId) {
       throw new ForbiddenException('Not authorized');
     }
 
@@ -627,6 +635,12 @@ export class BusinessService {
   ): Promise<ExpenseCategoryResponseDto> {
     this.logger.log(`[BUSINESS] Creating expense category for business: ${businessId}`);
 
+    const cleanName = dto.name?.trim();
+    if (!cleanName) throw new BadRequestException('Category name is required');
+    if ((dto.budgetLimit == null) !== (dto.budgetPeriod == null)) {
+      throw new BadRequestException('budgetLimit and budgetPeriod must be configured together');
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -638,45 +652,68 @@ export class BusinessService {
       },
     });
 
-    if (user.businessId !== businessId) {
+    if (!user || user.businessId !== businessId) {
       throw new ForbiddenException('Not authorized');
     }
 
-    const hasPermission = user.userRoles.some(
-      (ur) => ur.role.name === 'Owner' || ur.role.name === 'Admin',
-    );
-    if (!hasPermission) {
-      throw new ForbiddenException('Only Owner/Admin can create expense categories');
+    const categoryCode = (dto.code || cleanName)
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 32);
+    if (!categoryCode)
+      throw new BadRequestException('Category code must contain letters or numbers');
+    let category;
+    try {
+      category = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.expenseCategory.create({
+          data: {
+            id: uuid(),
+            businessId,
+            name: cleanName,
+            code: categoryCode,
+            description: dto.description,
+            budgetLimit: dto.budgetLimit,
+            budgetPeriod: dto.budgetPeriod,
+            isActive: true,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            businessId,
+            userId,
+            entityType: 'ExpenseCategory',
+            entityId: created.id,
+            action: 'CREATE',
+            afterData: JSON.stringify(created),
+            description: 'CREATE ExpenseCategory',
+          },
+        });
+        return created;
+      });
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+        throw new ConflictException(
+          'Expense category name or code already exists in this business',
+        );
+      }
+      throw error;
     }
-
-    const existing = await this.prisma.expenseCategory.findFirst({
-      where: {
-        businessId,
-        name: dto.name,
-      },
-    });
-
-    if (existing) {
-      throw new ConflictException(`Expense category ${dto.name} already exists`);
-    }
-
-    const category = await this.prisma.expenseCategory.create({
-      data: {
-        id: uuid(),
-        businessId,
-        name: dto.name,
-        description: dto.description,
-        isActive: true,
-      },
-    });
 
     return {
       id: category.id,
       businessId: category.businessId,
       name: category.name,
+      code: category.code,
       description: category.description,
+      budgetLimit: category.budgetLimit,
+      budgetPeriod: category.budgetPeriod as ExpenseCategoryResponseDto['budgetPeriod'],
       isActive: category.isActive,
       createdAt: category.createdAt,
+      updatedAt: category.updatedAt,
     };
   }
 
@@ -690,9 +727,13 @@ export class BusinessService {
       id: c.id,
       businessId: c.businessId,
       name: c.name,
+      code: c.code,
       description: c.description,
+      budgetLimit: c.budgetLimit,
+      budgetPeriod: c.budgetPeriod as ExpenseCategoryResponseDto['budgetPeriod'],
       isActive: c.isActive,
       createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
     }));
   }
 

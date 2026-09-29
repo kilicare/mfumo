@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { Business } from '../common/decorators/business.decorator';
 import { UserId } from '../common/decorators/auth.decorator';
 import { RequirePermission } from '../common/decorators/permission.decorator';
@@ -31,7 +32,7 @@ import {
 
 @ApiTags('Business Setup')
 @Controller('business')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @ApiBearerAuth()
 export class BusinessController {
   constructor(private businessService: BusinessService) {}

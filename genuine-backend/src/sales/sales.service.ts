@@ -10,6 +10,8 @@ import { Prisma } from '@prisma/client';
 import { v4 as uuid } from 'uuid';
 import { LoggerService } from '../common/logger/logger.service';
 import { PrismaService } from '../database/prisma.service';
+import { assertAccountingPeriodOpen } from '../common/utils/accounting-period.util';
+import { InventoryService } from '../inventory/inventory.service';
 import {
   ApplyDiscountDto,
   CreateSalesInvoiceDto,
@@ -49,6 +51,7 @@ export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly logger: LoggerService,
+    private readonly inventory: InventoryService,
   ) {}
 
   async createSalesInvoice(
@@ -369,6 +372,7 @@ export class SalesService {
       if (!invoice) throw new NotFoundException('Sales invoice not found');
       if (invoice.status !== 'DRAFT')
         throw new BadRequestException('Only DRAFT invoices can be issued');
+      await assertAccountingPeriodOpen(tx, businessId, new Date());
       if (!invoice.items.length)
         throw new BadRequestException('Invoice must have at least one item');
       const customer = await tx.customer.findFirst({
@@ -395,6 +399,7 @@ export class SalesService {
       });
       if (!business) throw new NotFoundException('Business not found');
       const quantities = this.aggregateQuantities(invoice.items);
+      const unitCostByProduct = new Map<string, number>();
       for (const [productId, quantity] of [...quantities].sort(([a], [b]) => a.localeCompare(b))) {
         await tx.stockBalance.upsert({
           where: { productId_locationId: { productId, locationId: invoice.locationId } },
@@ -409,6 +414,19 @@ export class SalesService {
           throw new BadRequestException(
             `Insufficient stock for ${invoice.items.find((item) => item.productId === productId)?.product.name || productId}; available: ${available}`,
           );
+        const product = invoice.items.find((item) => item.productId === productId)?.product;
+        unitCostByProduct.set(
+          productId,
+          await this.inventory.outgoingUnitCost(
+            tx,
+            businessId,
+            productId,
+            invoice.locationId,
+            quantity,
+            available,
+            product?.buyingPrice || 0,
+          ),
+        );
         await tx.stockBalance.update({
           where: { productId_locationId: { productId, locationId: invoice.locationId } },
           data: { quantity: available - quantity, lastMovementAt: new Date() },
@@ -426,6 +444,7 @@ export class SalesService {
             referenceId: invoiceId,
             referenceType: 'SalesInvoice',
             notes: `Invoice ${invoice.invoiceNumber}`,
+            unitCost: unitCostByProduct.get(item.productId),
             createdBy: userId,
           },
         });
@@ -517,6 +536,7 @@ export class SalesService {
         await this.lockInvoice(tx, businessId, invoiceId);
         const invoice = await tx.salesInvoice.findFirst({ where: { id: invoiceId, businessId } });
         if (!invoice) throw new NotFoundException('Sales invoice not found');
+        await assertAccountingPeriodOpen(tx, businessId, paymentDate);
         if (['DRAFT', 'CANCELLED'].includes(invoice.status))
           throw new BadRequestException('Payments require an issued invoice');
         if (
@@ -625,7 +645,7 @@ export class SalesService {
       await this.lockInvoice(tx, businessId, invoiceId);
       const invoice = await tx.salesInvoice.findFirst({
         where: { id: invoiceId, businessId },
-        include: { items: true },
+        include: { items: { include: { product: true } } },
       });
       if (!invoice) throw new NotFoundException('Sales invoice not found');
       if (invoice.status === 'CANCELLED')
@@ -639,6 +659,18 @@ export class SalesService {
         });
         if (returns)
           throw new BadRequestException('Resolve sales returns before cancelling the invoice');
+        const originalSaleMovements = await tx.inventoryMovement.findMany({
+          where: {
+            businessId,
+            referenceType: 'SalesInvoice',
+            referenceId: invoiceId,
+            type: 'SALE',
+          },
+          select: { productId: true, unitCost: true },
+        });
+        const unitCostByProduct = new Map(
+          originalSaleMovements.map((movement) => [movement.productId, movement.unitCost]),
+        );
         for (const item of invoice.items) {
           const stock = await tx.stockBalance.upsert({
             where: {
@@ -673,6 +705,7 @@ export class SalesService {
               referenceId: invoiceId,
               referenceType: 'SalesInvoice',
               notes: `${invoice.invoiceNumber}: ${reason}`,
+              unitCost: unitCostByProduct.get(item.productId) ?? item.product.buyingPrice,
               createdBy: userId,
             },
           });
@@ -905,6 +938,25 @@ export class SalesService {
         throw new BadRequestException('Only AUTHORIZED returns can be received');
       if (ret.invoice.status === 'CANCELLED')
         throw new BadRequestException('Cannot receive a return for a cancelled invoice');
+      const originalSaleMovements = await tx.inventoryMovement.findMany({
+        where: {
+          businessId,
+          referenceType: 'SalesInvoice',
+          referenceId: ret.invoiceId,
+          type: 'SALE',
+        },
+        select: { productId: true, unitCost: true },
+      });
+      const products = await tx.product.findMany({
+        where: { businessId, id: { in: ret.items.map((item) => item.productId) } },
+        select: { id: true, buyingPrice: true },
+      });
+      const fallbackCostByProduct = new Map(
+        products.map((product) => [product.id, product.buyingPrice]),
+      );
+      const unitCostByProduct = new Map(
+        originalSaleMovements.map((movement) => [movement.productId, movement.unitCost]),
+      );
       for (const item of [...ret.items].sort((a, b) => a.productId.localeCompare(b.productId))) {
         const stock = await tx.stockBalance.upsert({
           where: {
@@ -939,6 +991,10 @@ export class SalesService {
             referenceId: ret.id,
             referenceType: 'SalesReturn',
             notes: `${ret.returnNumber}: ${item.reason || ret.reason}`,
+            unitCost:
+              unitCostByProduct.get(item.productId) ??
+              fallbackCostByProduct.get(item.productId) ??
+              0,
             createdBy: userId,
           },
         });
@@ -1284,7 +1340,7 @@ export class SalesService {
   ) {
     const [payments, returns] = await Promise.all([
       tx.payment.findMany({
-        where: { invoiceId, status: { in: ['RECORDED', 'VERIFIED'] } },
+        where: { invoiceId, status: { in: ['RECORDED', 'VERIFIED', 'RECONCILED', 'COMPLETED'] } },
         select: { amount: true },
       }),
       tx.salesReturn.findMany({

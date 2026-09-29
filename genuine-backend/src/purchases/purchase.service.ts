@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { v4 as uuid } from 'uuid';
 import { PrismaService } from '../database/prisma.service';
 import { LoggerService } from '../common/logger/logger.service';
+import { assertAccountingPeriodOpen } from '../common/utils/accounting-period.util';
 import {
   CreatePurchaseOrderDto,
   UpdatePurchaseOrderDto,
@@ -255,6 +256,7 @@ export class PurchaseService {
       where: {
         poId: poId,
         businessId,
+        status: { not: 'VOIDED' },
       },
     });
 
@@ -331,6 +333,7 @@ export class PurchaseService {
           await tx.$queryRaw`SELECT "id" FROM "PurchaseOrder" WHERE "id" = ${poId} AND "businessId" = ${businessId} FOR UPDATE`;
           const po = await tx.purchaseOrder.findFirst({ where: { id: poId, businessId } });
           if (!po) throw new NotFoundException('Purchase order not found');
+          await assertAccountingPeriodOpen(tx, businessId, dto.paymentDate || new Date());
           if (po.status === 'CANCELLED') {
             throw new BadRequestException(
               'Payments cannot be recorded for a cancelled purchase order',
@@ -343,7 +346,7 @@ export class PurchaseService {
           if (!paymentMethod) throw new BadRequestException('Active payment method not found');
 
           const prior = await tx.payment.aggregate({
-            where: { businessId, poId },
+            where: { businessId, poId, status: { not: 'VOIDED' } },
             _sum: { amount: true },
           });
           const totalPaid = prior._sum.amount || 0;
@@ -749,6 +752,15 @@ export class PurchaseService {
           'Received quantity must equal accepted + rejected + damaged quantities',
         );
       }
+      if (
+        poItem.product.requiresExpiry &&
+        accepted > 0 &&
+        (!item.expiryDate || !item.batchNumber?.trim())
+      ) {
+        throw new BadRequestException(
+          `Batch number and expiry date are required for ${poItem.product.name}`,
+        );
+      }
     }
 
     let grnNumber = dto.grnNumber;
@@ -822,6 +834,8 @@ export class PurchaseService {
             rejectedQuantity: Number(item.rejectedQuantity),
             damageQuantity: Number(item.damageQuantity),
             notes: item.notes,
+            batchNumber: item.batchNumber,
+            expiryDate: item.expiryDate ? new Date(item.expiryDate) : undefined,
           })),
         });
         return created;
@@ -913,6 +927,8 @@ export class PurchaseService {
         rejectedQuantity: item.rejectedQuantity,
         damageQuantity: item.damageQuantity,
         notes: item.notes,
+        batchNumber: item.batchNumber,
+        expiryDate: item.expiryDate,
       })),
       totalReceivedQty,
       totalAcceptedQty,
@@ -958,7 +974,10 @@ export class PurchaseService {
     await this.prisma.$transaction(async (tx) => {
       const grn = await tx.goodsReceivedNote.findFirst({
         where: { id: grnId, businessId },
-        include: { purchaseOrder: { include: { items: true } }, items: true },
+        include: {
+          purchaseOrder: { include: { items: { include: { product: true } } } },
+          items: true,
+        },
       });
       if (!grn) throw new NotFoundException('GRN not found');
       if (grn.status !== 'RECEIVED')
@@ -988,6 +1007,8 @@ export class PurchaseService {
             rejectedQuantity: update?.rejectedQuantity ?? prior.rejectedQuantity,
             damageQuantity: update?.damageQuantity ?? prior.damageQuantity,
             notes: update?.notes ?? prior.notes,
+            batchNumber: update?.batchNumber ?? prior.batchNumber,
+            expiryDate: update?.expiryDate ? new Date(update.expiryDate) : prior.expiryDate,
           };
         });
         for (const item of requestedUpdates) {
@@ -1010,6 +1031,8 @@ export class PurchaseService {
             rejectedQuantity: item.rejectedQuantity,
             damageQuantity: item.damageQuantity,
             notes: item.notes,
+            batchNumber: item.batchNumber,
+            expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
           });
         }
         for (const item of updatedItems) {
@@ -1023,6 +1046,18 @@ export class PurchaseService {
           ) {
             throw new BadRequestException(
               'Received quantity must equal accepted + rejected + damaged quantities',
+            );
+          }
+          const poItem = grn.purchaseOrder.items.find(
+            (candidate) => candidate.id === item.purchaseOrderItemId,
+          )!;
+          if (
+            poItem.product.requiresExpiry &&
+            item.acceptedQuantity > 0 &&
+            (!item.expiryDate || !item.batchNumber?.trim())
+          ) {
+            throw new BadRequestException(
+              `Batch number and expiry date are required for ${poItem.product.name}`,
             );
           }
         }
@@ -1097,6 +1132,7 @@ export class PurchaseService {
         include: { purchaseOrder: { include: { supplier: true, items: true } }, items: true },
       });
       if (!grn) throw new NotFoundException('GRN not found');
+      await assertAccountingPeriodOpen(tx, businessId, grn.receivedDate);
       if (grn.status !== 'RECEIVED')
         throw new BadRequestException('Only RECEIVED GRNs can be accepted');
       if (!['ORDERED', 'PARTIALLY_RECEIVED'].includes(grn.purchaseOrder.status)) {
@@ -1143,6 +1179,9 @@ export class PurchaseService {
               referenceId: grn.id,
               referenceType: 'GoodsReceivedNote',
               notes: `Received from ${grn.purchaseOrder.supplier.name} (GRN: ${grn.grnNumber})`,
+              unitCost: poItem.quantity > 0 ? poItem.lineTotal / poItem.quantity : poItem.unitPrice,
+              batchNumber: item.batchNumber,
+              expiryDate: item.expiryDate,
               createdBy: userId,
             },
           });

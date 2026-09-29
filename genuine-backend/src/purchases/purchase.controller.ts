@@ -210,6 +210,7 @@ export class PurchaseController {
   }
 
   @Post('grn/:id/accept')
+  @HttpCode(HttpStatus.OK)
   @RequirePermission('purchases.approve')
   @ApiOperation({ summary: 'Accept GRN (QC Pass & Stock In)' })
   @ApiResponse({ status: 200, type: GRNResponseDto })
@@ -222,6 +223,7 @@ export class PurchaseController {
   }
 
   @Post('grn/:id/reject')
+  @HttpCode(HttpStatus.OK)
   @RequirePermission('purchases.approve')
   @ApiOperation({ summary: 'Reject GRN' })
   @ApiResponse({ status: 200, type: GRNResponseDto })

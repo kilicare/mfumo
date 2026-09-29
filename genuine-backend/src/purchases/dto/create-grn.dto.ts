@@ -7,6 +7,7 @@ import {
   Min,
   ArrayMinSize,
   IsDate,
+  IsDateString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -37,6 +38,14 @@ export class GRNItemDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  batchNumber?: string;
+
+  @IsOptional()
+  @IsDateString()
+  expiryDate?: string;
 }
 
 export class CreateGRNDto {

@@ -268,6 +268,11 @@ async function main() {
       data: {
         businessId: business.id,
         name: category.name,
+        code: category.name
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .slice(0, 32),
       },
     });
   }
