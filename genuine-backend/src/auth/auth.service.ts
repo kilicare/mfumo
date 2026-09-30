@@ -6,10 +6,12 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuid } from 'uuid';
 import { PrismaService } from '../database/prisma.service';
 import { LoggerService } from '../common/logger/logger.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   RegisterDto,
   LoginDto,
@@ -28,13 +30,15 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private logger: LoggerService,
+    private notifications: NotificationsService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<AuthResponseDto> {
+  async register(dto: RegisterDto, ipAddress = 'unknown'): Promise<AuthResponseDto> {
     this.logger.log(`[AUTH] Register attempt: ${dto.email}`);
+    const normalizedEmail = dto.email.trim().toLowerCase();
 
     const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizedEmail },
     });
 
     if (existingUser) {
@@ -42,86 +46,96 @@ export class AuthService {
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-
-    const business = await this.prisma.business.create({
-      data: {
-        id: uuid(),
-        name: dto.businessName,
-        businessType: dto.businessType,
-        currency: 'TZS',
-        taxPercentage: 18,
-        allowNegativeStock: false,
-        costingMethod: 'FIFO',
-      },
-    });
-
-    const user = await this.prisma.user.create({
-      data: {
-        id: uuid(),
-        email: dto.email,
-        passwordHash: hashedPassword,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        businessId: business.id,
-        isActive: true,
-      },
-    });
-
-    const roles = await this._createDefaultRolesAndPermissions(business.id);
-
-    const ownerRole = roles.find((r) => r.name === 'Owner');
-    if (ownerRole) {
-      await this.prisma.userRole.create({
-        data: {
-          userId: user.id,
-          roleId: ownerRole.id,
-        },
-      });
-    }
-
-    const userWithDetails = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      include: {
-        userRoles: {
-          include: {
-            role: {
-              include: {
-                permissions: true,
-              },
-            },
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const business = await tx.business.create({
+          data: {
+            id: uuid(),
+            name: dto.businessName,
+            businessType: dto.businessType,
+            currency: 'TZS',
+            taxPercentage: 18,
+            allowNegativeStock: false,
+            costingMethod: 'FIFO',
           },
-        },
-      },
-    });
+        });
 
-    const tokens = await this._generateTokens(user.id, user.email, business.id, userWithDetails);
+        const user = await tx.user.create({
+          data: {
+            id: uuid(),
+            email: normalizedEmail,
+            passwordHash: hashedPassword,
+            firstName: dto.firstName.trim(),
+            lastName: dto.lastName.trim(),
+            businessId: business.id,
+            isActive: true,
+          },
+        });
 
-    this.logger.log(`[AUTH] Registration successful: ${user.email} (Business: ${business.id})`);
+        const roles = await this._createDefaultRolesAndPermissions(business.id, tx);
+        const ownerRole = roles.find((role) => role.name === 'Owner');
+        if (!ownerRole) throw new BadRequestException('Could not create the business owner role');
 
-    return {
-      ...tokens,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: `${user.firstName} ${user.lastName}`,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        businessId: business.id,
-        businessName: business.name,
-        roles: userWithDetails.userRoles.map((ur) => ur.role.name),
-        permissions: userWithDetails.userRoles
-          .flatMap((ur) => ur.role.permissions)
-          .map((p) => p.key),
-      },
-    };
+        await tx.userRole.create({ data: { userId: user.id, roleId: ownerRole.id } });
+        const userWithDetails = await tx.user.findUniqueOrThrow({
+          where: { id: user.id },
+          include: { userRoles: { include: { role: { include: { permissions: true } } } } },
+        });
+        const tokens = await this._generateTokens(
+          user.id,
+          user.email,
+          business.id,
+          userWithDetails,
+        );
+
+        await tx.userSession.create({
+          data: {
+            id: uuid(),
+            userId: user.id,
+            refreshTokenHash: await bcrypt.hash(tokens.refreshToken, 10),
+            ipAddress,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          },
+        });
+
+        return {
+          ...tokens,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: `${user.firstName} ${user.lastName}`,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            businessId: business.id,
+            businessName: business.name,
+            roles: userWithDetails.userRoles.map((userRole) => userRole.role.name),
+            permissions: userWithDetails.userRoles
+              .flatMap((userRole) => userRole.role.permissions)
+              .map((permission) => permission.key),
+          },
+        };
+      });
+
+      this.logger.log(
+        `[AUTH] Registration successful: ${result.user.email} (Business: ${result.user.businessId})`,
+      );
+      return result;
+    } catch (error) {
+      if ((error as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') {
+        throw new ConflictException(`Email ${dto.email} already registered`);
+      }
+      throw error;
+    }
   }
 
   async login(dto: LoginDto, ipAddress: string): Promise<AuthResponseDto> {
-    this.logger.log(`[AUTH] Login attempt: ${dto.email}`);
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    this.logger.log(`[AUTH] Login attempt: ${normalizedEmail}`);
 
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizedEmail },
       include: {
+        business: { select: { name: true } },
         userRoles: {
           include: {
             role: {
@@ -144,7 +158,7 @@ export class AuthService {
 
     const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isPasswordValid) {
-      this.logger.warn(`[AUTH] Invalid password for ${dto.email}`);
+      this.logger.warn(`[AUTH] Invalid password for ${normalizedEmail}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -187,7 +201,7 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         businessId: user.businessId,
-        businessName: '',
+        businessName: user.business.name,
         roles: user.userRoles.map((ur) => ur.role.name),
         permissions: user.userRoles.flatMap((ur) => ur.role.permissions).map((p) => p.key),
       },
@@ -201,27 +215,38 @@ export class AuthService {
     this.logger.log(`[AUTH] Refresh token attempt for user: ${userId}`);
 
     try {
-      await this.jwtService.verifyAsync(dto.refreshToken, {
+      const payload = await this.jwtService.verifyAsync(dto.refreshToken, {
         secret: this.config.get('JWT_REFRESH_SECRET'),
       });
+      if (payload.sub !== userId || payload.type !== 'refresh') {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
     } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const session = await this.prisma.userSession.findFirst({
+    const sessions = await this.prisma.userSession.findMany({
       where: {
         userId,
         expiresAt: {
           gt: new Date(),
         },
       },
+      select: { refreshTokenHash: true },
     });
 
-    if (!session) {
+    if (!sessions.length) {
       throw new UnauthorizedException('Session expired or not found');
     }
 
-    const isTokenValid = await bcrypt.compare(dto.refreshToken, session.refreshTokenHash);
+    let isTokenValid = false;
+    for (const session of sessions) {
+      if (await bcrypt.compare(dto.refreshToken, session.refreshTokenHash)) {
+        isTokenValid = true;
+        break;
+      }
+    }
     if (!isTokenValid) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -241,6 +266,10 @@ export class AuthService {
       },
     });
 
+    if (!user?.isActive) {
+      throw new UnauthorizedException('User account is deactivated');
+    }
+
     const accessToken = this.jwtService.sign({
       sub: user.id,
       email: user.email,
@@ -257,16 +286,16 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto): Promise<PasswordResetRequestDto> {
-    this.logger.log(`[AUTH] Forgot password request: ${dto.email}`);
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    this.logger.log(`[AUTH] Forgot password request: ${normalizedEmail}`);
 
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizedEmail },
     });
 
     if (!user) {
       return {
         message: 'If email exists, password reset link has been sent',
-        email: dto.email,
       };
     }
 
@@ -291,14 +320,10 @@ export class AuthService {
       },
     });
 
-    await this._sendPasswordResetEmail(user.email, user.firstName, resetToken);
-
-    this.logger.log(`[AUTH] Password reset link sent to: ${user.email}`);
+    await this._sendPasswordResetEmail(user.businessId, user.email, user.firstName, resetToken);
 
     return {
       message: 'If email exists, password reset link has been sent',
-      email: dto.email,
-      resetToken,
     };
   }
 
@@ -310,7 +335,11 @@ export class AuthService {
       payload = await this.jwtService.verifyAsync(dto.token, {
         secret: this.config.get('JWT_RESET_SECRET'),
       });
+      if (payload.type !== 'password-reset') {
+        throw new UnauthorizedException('Invalid or expired reset token');
+      }
     } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Invalid or expired reset token');
     }
 
@@ -333,17 +362,23 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        passwordHash: hashedPassword,
-        passwordResetTokenHash: null,
-        passwordResetExpiresAt: null,
-      },
-    });
-
-    await this.prisma.userSession.deleteMany({
-      where: { userId: user.id },
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.user.updateMany({
+        where: {
+          id: user.id,
+          passwordResetTokenHash: user.passwordResetTokenHash,
+          passwordResetExpiresAt: { gt: new Date() },
+        },
+        data: {
+          passwordHash: hashedPassword,
+          passwordResetTokenHash: null,
+          passwordResetExpiresAt: null,
+        },
+      });
+      if (consumed.count !== 1) {
+        throw new UnauthorizedException('Invalid or expired reset token');
+      }
+      await tx.userSession.deleteMany({ where: { userId: user.id } });
     });
 
     this.logger.log(`[AUTH] Password reset successful: ${user.email}`);
@@ -374,15 +409,12 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        passwordHash: hashedPassword,
-      },
-    });
-
-    await this.prisma.userSession.deleteMany({
-      where: { userId },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { passwordHash: hashedPassword },
+      });
+      await tx.userSession.deleteMany({ where: { userId } });
     });
 
     this.logger.log(`[AUTH] Password changed for user: ${userId}`);
@@ -406,6 +438,7 @@ export class AuthService {
     return this.prisma.user.findUnique({
       where: { id: userId },
       include: {
+        business: { select: { name: true } },
         userRoles: {
           include: {
             role: {
@@ -457,8 +490,11 @@ export class AuthService {
     };
   }
 
-  private async _createDefaultRolesAndPermissions(businessId: string) {
-    const existingRoles = await this.prisma.role.findMany({
+  private async _createDefaultRolesAndPermissions(
+    businessId: string,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const existingRoles = await client.role.findMany({
       where: { businessId },
       include: { permissions: { select: { id: true, key: true } } },
     });
@@ -511,14 +547,14 @@ export class AuthService {
       { key: 'audit.view', category: 'Audit', action: 'view' },
     ];
 
-    const existingPermissions = await this.prisma.permission.findMany({
+    const existingPermissions = await client.permission.findMany({
       where: { businessId },
       select: { id: true, key: true },
     });
     const existingPermissionKeys = new Set(existingPermissions.map((p) => p.key));
     const missingPermissions = permissionsData.filter((p) => !existingPermissionKeys.has(p.key));
     if (missingPermissions.length) {
-      await this.prisma.permission.createMany({
+      await client.permission.createMany({
         data: missingPermissions.map((p) => ({
           id: uuid(),
           businessId,
@@ -530,7 +566,7 @@ export class AuthService {
         skipDuplicates: true,
       });
     }
-    const createdPermissions = await this.prisma.permission.findMany({ where: { businessId } });
+    const createdPermissions = await client.permission.findMany({ where: { businessId } });
 
     const rolesConfig = [
       {
@@ -611,7 +647,7 @@ export class AuthService {
       if (current) {
         roles.push(
           missingRolePermissions.length
-            ? await this.prisma.role.update({
+            ? await client.role.update({
                 where: { id: current.id },
                 data: {
                   permissions: { connect: missingRolePermissions.map((p) => ({ id: p.id })) },
@@ -622,7 +658,7 @@ export class AuthService {
         );
       } else {
         roles.push(
-          await this.prisma.role.create({
+          await client.role.create({
             data: {
               id: uuid(),
               businessId,
@@ -641,8 +677,26 @@ export class AuthService {
     return roles;
   }
 
-  private async _sendPasswordResetEmail(email: string, firstName: string, resetToken: string) {
-    const resetLink = `${this.config.get('FRONTEND_URL')}/auth/reset-password?token=${resetToken}`;
-    this.logger.log(`[EMAIL] Password reset link for ${email}: ${resetLink}`);
+  private async _sendPasswordResetEmail(
+    businessId: string,
+    email: string,
+    firstName: string,
+    resetToken: string,
+  ) {
+    try {
+      const frontendUrl = this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+      const resetUrl = new URL('/reset-password', frontendUrl);
+      resetUrl.searchParams.set('token', resetToken);
+      const queued = await this.notifications.enqueuePasswordResetEmail({
+        businessId,
+        email,
+        firstName,
+        resetLink: resetUrl.toString(),
+      });
+      if (queued) this.logger.log(`[AUTH] Password reset email queued for ${email}`);
+    } catch {
+      // Keep account existence private and do not return or log the reset token.
+      this.logger.error(`[AUTH] Unable to queue password reset email for ${email}`);
+    }
   }
 }

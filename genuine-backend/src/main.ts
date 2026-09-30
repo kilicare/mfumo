@@ -52,6 +52,7 @@ async function bootstrap() {
     .addTag('payments', 'Payments')
     .addTag('expenses', 'Expenses Management')
     .addTag('reports', 'Reports & Analytics')
+    .addTag('notifications', 'Notifications, templates, inbox and delivery')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

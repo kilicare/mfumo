@@ -27,13 +27,18 @@ import {
   TrendAnalysisFilterDto,
 } from './dto';
 import { AnalyticsService } from './analytics.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationEventType } from '../notifications/dto';
 
 @ApiTags('Analytics & Reporting')
 @ApiBearerAuth()
 @Controller('analytics')
 @UseGuards(JwtAuthGuard, PermissionGuard)
 export class AnalyticsController {
-  constructor(private readonly analytics: AnalyticsService) {}
+  constructor(
+    private readonly analytics: AnalyticsService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   @Get('dashboard/executive')
   @HttpCode(HttpStatus.OK)
@@ -216,6 +221,14 @@ export class AnalyticsController {
           : Buffer.byteLength(result.content, 'utf8'),
       },
     );
+    await this.notifications.publishEvent({
+      businessId,
+      eventType: NotificationEventType.REPORT_GENERATED,
+      referenceId: `${filter.reportType}:${Date.now()}`,
+      referenceType: 'AnalyticsReport',
+      idempotencyKey: `REPORT_GENERATED:${userId}:${filter.reportType}:${Date.now()}`,
+      variables: { reportName: filter.reportType, format: result.format },
+    });
     response.setHeader('Content-Type', result.contentType);
     response.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
     response.setHeader('Cache-Control', 'no-store');

@@ -12,6 +12,8 @@ import { LoggerService } from '../common/logger/logger.service';
 import { PrismaService } from '../database/prisma.service';
 import { assertAccountingPeriodOpen } from '../common/utils/accounting-period.util';
 import { InventoryService } from '../inventory/inventory.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationEventType } from '../notifications/dto';
 import {
   ApplyDiscountDto,
   CreateSalesInvoiceDto,
@@ -52,6 +54,7 @@ export class SalesService {
     private readonly prisma: PrismaService,
     private readonly logger: LoggerService,
     private readonly inventory: InventoryService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async createSalesInvoice(
@@ -157,7 +160,19 @@ export class SalesService {
       throw error;
     }
     this.logger.log(`[SALES] Invoice created: ${id}`);
-    return this.getSalesInvoiceById(businessId, id);
+    const created = await this.getSalesInvoiceById(businessId, id);
+    await this.notifications.publishEvent({
+      businessId,
+      eventType: NotificationEventType.INVOICE_CREATED,
+      referenceId: id,
+      referenceType: 'SalesInvoice',
+      variables: {
+        invoiceNumber: created.invoiceNumber,
+        customerName: created.customerName,
+        totalAmount: created.totalAmount,
+      },
+    });
+    return created;
   }
 
   async getSalesInvoiceById(
@@ -464,7 +479,31 @@ export class SalesService {
         updated,
       );
     });
-    return this.getSalesInvoiceById(businessId, invoiceId);
+    const issued = await this.getSalesInvoiceById(businessId, invoiceId);
+    await Promise.all(
+      [...new Set(issued.items.map((item) => item.productId))].map((productId) =>
+        this.notifications.checkStockLevel(businessId, productId, issued.locationId),
+      ),
+    );
+    const contact = await this.prisma.salesInvoice.findFirst({
+      where: { id: invoiceId, businessId },
+      select: { customer: { select: { name: true, email: true } } },
+    });
+    await this.notifications.publishEvent({
+      businessId,
+      eventType: NotificationEventType.SALES_INVOICE_ISSUED,
+      referenceId: invoiceId,
+      referenceType: 'SalesInvoice',
+      variables: {
+        invoiceNumber: issued.invoiceNumber,
+        customerName: issued.customerName,
+        totalAmount: issued.totalAmount,
+      },
+      externalRecipients: contact?.customer.email
+        ? [{ email: contact.customer.email, name: contact.customer.name }]
+        : [],
+    });
+    return issued;
   }
 
   async applyDiscount(
@@ -617,6 +656,25 @@ export class SalesService {
     }
     const payment = await this.prisma.payment.findFirst({ where: { id: paymentId, businessId } });
     if (!payment) throw new NotFoundException('Payment not found after creation');
+    const invoice = await this.prisma.salesInvoice.findFirst({
+      where: { id: invoiceId, businessId },
+      include: { customer: { select: { name: true, email: true } } },
+    });
+    await this.notifications.publishEvent({
+      businessId,
+      eventType: NotificationEventType.PAYMENT_RECEIVED,
+      referenceId: payment.id,
+      referenceType: 'Payment',
+      idempotencyKey: `PAYMENT_RECEIVED:${payment.id}`,
+      variables: {
+        paymentNumber: payment.paymentNumber,
+        amount: payment.amount,
+        invoiceNumber: invoice?.invoiceNumber,
+      },
+      externalRecipients: invoice?.customer.email
+        ? [{ email: invoice.customer.email, name: invoice.customer.name }]
+        : [],
+    });
     return {
       id: payment.id,
       businessId,

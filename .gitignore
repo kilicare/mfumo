@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+.pnpm-store/
+*.tsbuildinfo
 .pnp
 .pnp.js
 

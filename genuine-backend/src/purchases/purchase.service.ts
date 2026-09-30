@@ -9,6 +9,8 @@ import { v4 as uuid } from 'uuid';
 import { PrismaService } from '../database/prisma.service';
 import { LoggerService } from '../common/logger/logger.service';
 import { assertAccountingPeriodOpen } from '../common/utils/accounting-period.util';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationEventType } from '../notifications/dto';
 import {
   CreatePurchaseOrderDto,
   UpdatePurchaseOrderDto,
@@ -30,6 +32,7 @@ export class PurchaseService {
   constructor(
     private prisma: PrismaService,
     private logger: LoggerService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ============================================================
@@ -610,7 +613,8 @@ export class PurchaseService {
 
     this.logger.log(`[PURCHASES] PO updated: ${poId}`);
 
-    return this.getPurchaseOrderById(businessId, poId);
+    const response = await this.getPurchaseOrderById(businessId, poId);
+    return response;
   }
 
   /**
@@ -649,7 +653,26 @@ export class PurchaseService {
 
     this.logger.log(`[PURCHASES] PO approved: ${poId}`);
 
-    return this.getPurchaseOrderById(businessId, poId);
+    const response = await this.getPurchaseOrderById(businessId, poId);
+    const supplier = await this.prisma.purchaseOrder.findFirst({
+      where: { id: poId, businessId },
+      select: { supplier: { select: { name: true, email: true } } },
+    });
+    await this.notifications.publishEvent({
+      businessId,
+      eventType: NotificationEventType.PURCHASE_ORDER_APPROVED,
+      referenceId: poId,
+      referenceType: 'PurchaseOrder',
+      variables: {
+        poNumber: response.poNumber,
+        supplierName: response.supplierName,
+        totalAmount: response.totalAmount,
+      },
+      externalRecipients: supplier?.supplier.email
+        ? [{ email: supplier.supplier.email, name: supplier.supplier.name }]
+        : [],
+    });
+    return response;
   }
 
   /**

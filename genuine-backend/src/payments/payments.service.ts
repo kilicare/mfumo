@@ -8,6 +8,8 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationEventType } from '../notifications/dto';
 import {
   CloseAccountingPeriodDto,
   CreateAccountingPeriodDto,
@@ -30,6 +32,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async createPayment(businessId: string, userId: string, dto: CreatePaymentDto) {
@@ -150,7 +153,29 @@ export class PaymentsService {
         'Payment could not be recorded because the balance or payment number changed',
       );
     }
-    return this.getPaymentById(businessId, paymentId!);
+    const created = await this.getPaymentById(businessId, paymentId!);
+    if (dto.referenceType === PaymentReferenceType.SalesInvoice && created.invoiceId) {
+      const invoice = await this.prisma.salesInvoice.findFirst({
+        where: { id: created.invoiceId, businessId },
+        include: { customer: { select: { name: true, email: true } } },
+      });
+      await this.notifications.publishEvent({
+        businessId,
+        eventType: NotificationEventType.PAYMENT_RECEIVED,
+        referenceId: created.id,
+        referenceType: 'Payment',
+        idempotencyKey: `PAYMENT_RECEIVED:${created.id}`,
+        variables: {
+          paymentNumber: created.paymentNumber,
+          amount: created.amount,
+          invoiceNumber: invoice?.invoiceNumber,
+        },
+        externalRecipients: invoice?.customer.email
+          ? [{ email: invoice.customer.email, name: invoice.customer.name }]
+          : [],
+      });
+    }
+    return created;
   }
 
   private async resolvePaymentReference(

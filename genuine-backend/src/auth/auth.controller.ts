@@ -42,8 +42,8 @@ export class AuthController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Register new business and admin user' })
   @ApiResponse({ status: 201, type: AuthResponseDto })
-  async register(@Body() dto: RegisterDto): Promise<AuthResponseDto> {
-    return this.authService.register(dto);
+  async register(@Body() dto: RegisterDto, @Req() req: Request): Promise<AuthResponseDto> {
+    return this.authService.register(dto, req.ip || 'unknown');
   }
 
   @Post('login')
@@ -136,9 +136,11 @@ export class AuthController {
     return {
       id: user.id,
       email: user.email,
+      name: `${user.firstName} ${user.lastName}`,
       firstName: user.firstName,
       lastName: user.lastName,
       businessId: user.businessId,
+      businessName: user.business?.name || '',
       roles: user.userRoles?.map((ur: any) => ur.role?.name || ur.role) || [],
       permissions:
         user.userRoles?.flatMap((ur: any) => ur.role?.permissions || []).map((p: any) => p.key) ||

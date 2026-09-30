@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   CreatePhysicalCountDto,
   CreateStockAdjustmentDto,
@@ -36,7 +37,10 @@ const round = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   private async serializableTransaction<T>(callback: (tx: Tx) => Promise<T>): Promise<T> {
     try {
@@ -131,7 +135,7 @@ export class InventoryService {
   }
 
   async approveStockAdjustment(businessId: string, id: string, userId: string) {
-    return this.prisma.$transaction(
+    const result = await this.prisma.$transaction(
       async (tx) => {
         const existing = await tx.stockAdjustment.findFirst({
           where: { id, businessId },
@@ -208,6 +212,14 @@ export class InventoryService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
+    await Promise.all(
+      result.items
+        .filter((item) => item.locationId && item.difference < -EPSILON)
+        .map((item) =>
+          this.notifications.checkStockLevel(businessId, item.productId, item.locationId!),
+        ),
+    );
+    return result;
   }
 
   async rejectStockAdjustment(businessId: string, id: string, userId: string, reason: string) {
@@ -322,7 +334,7 @@ export class InventoryService {
   }
 
   async sendStockTransfer(businessId: string, id: string, userId: string) {
-    return this.serializableTransaction(async (tx) => {
+    const result = await this.serializableTransaction(async (tx) => {
       const transfer = await tx.stockTransfer.findFirst({
         where: { id, businessId },
         include: { items: { include: { product: true } } },
@@ -381,6 +393,12 @@ export class InventoryService {
       await this.audit(tx, businessId, userId, 'SEND', 'StockTransfer', id, transfer, updated);
       return updated;
     });
+    await Promise.all(
+      result.items.map((item) =>
+        this.notifications.checkStockLevel(businessId, item.productId, result.fromLocationId),
+      ),
+    );
+    return result;
   }
 
   async receiveStockTransfer(
@@ -565,7 +583,7 @@ export class InventoryService {
   }
 
   async postPhysicalCount(businessId: string, id: string, userId: string) {
-    return this.prisma.$transaction(
+    const result = await this.prisma.$transaction(
       async (tx) => {
         const count = await tx.physicalCount.findFirst({
           where: { id, businessId },
@@ -622,6 +640,14 @@ export class InventoryService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+    await Promise.all(
+      result.items
+        .filter((item) => item.variance < -EPSILON)
+        .map((item) =>
+          this.notifications.checkStockLevel(businessId, item.productId, result.locationId),
+        ),
+    );
+    return result;
   }
 
   async getStockValuationReport(businessId: string, filter: StockValuationReportDto) {

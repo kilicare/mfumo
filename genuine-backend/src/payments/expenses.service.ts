@@ -14,6 +14,8 @@ import {
   UpdateExpenseDto,
 } from './dto';
 import { ExpenseBudgetPeriod } from '../business/dto/expense-category.dto';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationEventType } from '../notifications/dto';
 import {
   CreateExpenseCategoryDto,
   ExpenseCategoryResponseDto,
@@ -30,7 +32,10 @@ const RECOGNIZED_EXPENSE_STATUSES = [ExpenseStatus.APPROVED, ExpenseStatus.PAID]
 
 @Injectable()
 export class ExpensesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async createCategory(businessId: string, userId: string, dto: CreateExpenseCategoryDto) {
     this.validateBudgetPair(dto.budgetLimit, dto.budgetPeriod);
@@ -355,7 +360,7 @@ export class ExpensesService {
   }
 
   async approveExpense(businessId: string, userId: string, id: string, notes?: string) {
-    await this.prisma.$transaction(async (tx) => {
+    const approved = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "Expense" WHERE "id" = ${id} AND "businessId" = ${businessId} FOR UPDATE`;
       const before = await tx.expense.findFirst({
         where: { id, businessId },
@@ -385,7 +390,14 @@ export class ExpensesService {
         },
       });
       await this.audit(tx, businessId, userId, 'Expense', id, 'APPROVE', before, updated);
-      return id;
+      return updated;
+    });
+    await this.notifications.publishEvent({
+      businessId,
+      eventType: NotificationEventType.EXPENSE_APPROVED,
+      referenceId: id,
+      referenceType: 'Expense',
+      variables: { expenseNumber: approved.expenseNumber, amount: approved.amount },
     });
     return this.getExpenseById(businessId, id);
   }

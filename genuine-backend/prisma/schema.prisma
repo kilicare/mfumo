@@ -9,83 +9,89 @@ datasource db {
 }
 
 model Business {
-  id                 String              @id @default(cuid())
-  name               String              @unique
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  address            String?
-  allowNegativeStock Boolean             @default(false)
-  businessType       String
-  costingMethod      String              @default("WEIGHTED_AVERAGE")
-  currency           String              @default("TZS")
-  description        String?
-  email              String?
-  financialYear      String              @default("CALENDAR")
-  isSetupComplete    Boolean             @default(false)
-  isActive           Boolean             @default(true)
-  logoUrl            String?
-  phone              String?
-  taxPercentage      Float               @default(18.0)
-  website            String?
-  periods            AccountingPeriod[]
-  auditLogs          AuditLog[]
-  categories         Category[]
-  costingMethods     CostingMethod?
-  customers          Customer[]
-  customerTypes      CustomerType[]
-  expenses           Expense[]
-  expenseCategories  ExpenseCategory[]
-  financials         FinancialSummary[]
-  grns               GoodsReceivedNote[]
-  movements          InventoryMovement[]
-  locations          Location[]
-  payments           Payment[]
-  paymentMethods     PaymentMethod[]
-  permissions        Permission[]
-  products           Product[]
-  purchases          PurchaseOrder[]
-  purchaseReturns    PurchaseReturn[]
-  roles              Role[]
-  sales              SalesInvoice[]
-  salesReturns       SalesReturn[]
-  adjustments        StockAdjustment[]
-  audits             StockAudit[]
-  transfers          StockTransfer[]
-  physicalCounts     PhysicalCount[]
-  suppliers          Supplier[]
-  users              User[]
+  id                    String                 @id @default(cuid())
+  name                  String                 @unique
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  address               String?
+  allowNegativeStock    Boolean                @default(false)
+  businessType          String
+  costingMethod         String                 @default("WEIGHTED_AVERAGE")
+  currency              String                 @default("TZS")
+  description           String?
+  email                 String?
+  financialYear         String                 @default("CALENDAR")
+  isSetupComplete       Boolean                @default(false)
+  isActive              Boolean                @default(true)
+  logoUrl               String?
+  phone                 String?
+  taxPercentage         Float                  @default(18.0)
+  website               String?
+  periods               AccountingPeriod[]
+  auditLogs             AuditLog[]
+  categories            Category[]
+  costingMethods        CostingMethod?
+  customers             Customer[]
+  customerTypes         CustomerType[]
+  expenses              Expense[]
+  expenseCategories     ExpenseCategory[]
+  financials            FinancialSummary[]
+  grns                  GoodsReceivedNote[]
+  movements             InventoryMovement[]
+  locations             Location[]
+  payments              Payment[]
+  paymentMethods        PaymentMethod[]
+  permissions           Permission[]
+  products              Product[]
+  purchases             PurchaseOrder[]
+  purchaseReturns       PurchaseReturn[]
+  roles                 Role[]
+  sales                 SalesInvoice[]
+  salesReturns          SalesReturn[]
+  adjustments           StockAdjustment[]
+  audits                StockAudit[]
+  transfers             StockTransfer[]
+  physicalCounts        PhysicalCount[]
+  suppliers             Supplier[]
+  users                 User[]
+  notificationTemplates NotificationTemplate[]
+  notifications         Notification[]
+  emailConfig           EmailConfig?
+  smsConfig             SMSConfig?
 
   @@index([name])
   @@index([createdAt])
 }
 
 model User {
-  id                     String        @id @default(cuid())
+  id                     String                  @id @default(cuid())
   businessId             String
-  email                  String        @unique
+  email                  String                  @unique
   passwordHash           String
   firstName              String
   lastName               String
   phone                  String?
   avatar                 String?
-  isActive               Boolean       @default(true)
-  isVerified             Boolean       @default(false)
+  isActive               Boolean                 @default(true)
+  isVerified             Boolean                 @default(false)
   verificationToken      String?
   passwordResetTokenHash String?
   passwordResetExpiresAt DateTime?
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
   lastLogin              DateTime?
-  createdAuditLogs       AuditLog[]    @relation("AuditCreatedBy")
-  assignedLocations      Location[]    @relation("LocationManager")
-  business               Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAuditLogs       AuditLog[]              @relation("AuditCreatedBy")
+  assignedLocations      Location[]              @relation("LocationManager")
+  business               Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
   sessions               UserSession[]
-  permissions            Permission[]  @relation("UserPermissions")
+  permissions            Permission[]            @relation("UserPermissions")
   userRoles              UserRole[]
-  createdExpenses        Expense[]     @relation("ExpenseCreatedBy")
-  approvedExpenses       Expense[]     @relation("ExpenseApprovedBy")
-  paidExpenses           Expense[]     @relation("ExpensePaidBy")
-  rejectedExpenses       Expense[]     @relation("ExpenseRejectedBy")
+  createdExpenses        Expense[]               @relation("ExpenseCreatedBy")
+  approvedExpenses       Expense[]               @relation("ExpenseApprovedBy")
+  paidExpenses           Expense[]               @relation("ExpensePaidBy")
+  rejectedExpenses       Expense[]               @relation("ExpenseRejectedBy")
+  inAppNotifications     InAppNotification[]
+  notificationRecipients NotificationRecipient[]
 
   @@unique([businessId, email])
   @@index([businessId])
@@ -1117,4 +1123,120 @@ model UserSession {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+model NotificationTemplate {
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  type        String
+  eventType   String
+  subject     String
+  body        String   @db.Text
+  description String?
+  variables   String[] @default([])
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, name])
+  @@index([businessId, eventType, type, isActive])
+}
+
+model Notification {
+  id             String                  @id @default(cuid())
+  businessId     String
+  type           String
+  eventType      String
+  status         String                  @default("PENDING")
+  subject        String
+  body           String                  @db.Text
+  referenceId    String?
+  referenceType  String?
+  idempotencyKey String?
+  attemptCount   Int                     @default(0)
+  lastAttemptAt  DateTime?
+  nextRetryAt    DateTime?
+  sentAt         DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  business       Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recipients     NotificationRecipient[]
+  logs           NotificationLog[]
+  inboxEntries   InAppNotification[]
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, createdAt])
+  @@index([businessId, status, nextRetryAt])
+  @@index([businessId, eventType, createdAt])
+  @@index([referenceType, referenceId])
+}
+
+model NotificationRecipient {
+  id             String       @id @default(cuid())
+  notificationId String
+  userId         String?
+  email          String?
+  phoneNumber    String?
+  name           String
+  status         String       @default("PENDING")
+  sentAt         DateTime?
+  failureReason  String?
+  providerId     String?
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([notificationId, userId])
+  @@index([notificationId, status])
+  @@index([email])
+  @@index([phoneNumber])
+}
+
+model NotificationLog {
+  id             String       @id @default(cuid())
+  notificationId String
+  recipient      String
+  status         String
+  message        String
+  responseCode   Int?
+  timestamp      DateTime     @default(now())
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId, timestamp])
+}
+
+model InAppNotification {
+  id             String       @id @default(cuid())
+  notificationId String
+  userId         String
+  isRead         Boolean      @default(false)
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId])
+  @@index([userId, isRead, createdAt])
+}
+
+model EmailConfig {
+  businessId String   @id
+  provider   String
+  fromEmail  String
+  fromName   String
+  config     String   @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model SMSConfig {
+  businessId String   @id
+  provider   String
+  fromNumber String
+  config     String   @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
