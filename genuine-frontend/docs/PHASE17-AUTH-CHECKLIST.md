@@ -2,6 +2,20 @@
 
 Tutapima kipengele kimoja kwa wakati. Kila kipimo kikifaulu, rekodi `GREEN` pamoja na data na response tuliyoona. Kikishindwa, simama hapo, rekebisha chanzo, rudia kipimo hicho, kisha endelea. Tumia mazingira ya development pekee; registration huunda business na owner mpya.
 
+## Checkpoint ya 2026-09-30
+
+Phase 17 bado haijafungwa. Hifadhi maendeleo haya ili tuendelee hapa tutakaporudi:
+
+- **GREEN:** Reset link halali ilikubali password mpya mara ya kwanza; kutumia link ileile tena kulikataliwa kwa `Invalid reset token` (single-use).
+- **GREEN:** Forgot-password email ilifika; inaeleza link inaisha baada ya saa moja na hutumika mara moja, na haionyeshi password ya sasa.
+- **GREEN:** Reset UI ilikubali token iliyokuwa kwenye query, ikaondoa query string kwenye address bar, na haikuonyesha tena `Reset token not found`.
+- **GREEN:** Client-side password validation ilikataa password yenye herufi chini ya 8, yenye herufi 129, isiyo na uppercase, isiyo na lowercase, isiyo na namba, isiyo na alama inayokubalika, na confirmation isiyolingana.
+- **GREEN:** Token ya majaribio iliyoharibika ilikataliwa na UI kwa `Invalid or expired reset token`.
+- **NEXT:** Token ya Business B: hakikisha token yake inaweza kubadilisha Business B pekee, na Business A inabaki bila mabadiliko. Tumia akaunti za majaribio tu; usinakili reset token kwenye log au ujumbe.
+- **PENDING:** Kwenye invalid-token cases, jaribu token iliyo-expire na token isiyo ya password-reset. Jaribio la reused token tayari ni GREEN hapo juu.
+- **PENDING:** Hakikisha reset imefuta sessions zote; old password ikataliwe na new password ikubaliwe; jaribu reset requests mbili za wakati mmoja.
+- **PENDING:** Malizia vipimo vingine vilivyo unchecked katika Sections 5–12; usihitimishe Phase 17 yote GREEN kwa checkpoint hii.
+
 ## Maandalizi
 
 - [ ] Washa backend na frontend; health ya backend iwe `GET http://localhost:3002/api/v1/health` → `200`.

@@ -34,7 +34,7 @@ export function TypewriterHeading({ text }: { text: string }) {
       <span className="sr-only">{text}</span>
       <span aria-hidden="true">
         {typedText}
-        <span className={`ml-1 inline-block h-[0.9em] w-px translate-y-[0.08em] bg-[#e5c36f] ${complete ? 'animate-pulse' : ''}`} />
+        <span className={`ml-1 inline-block h-[0.9em] w-px translate-y-[0.08em] bg-[#d8f04b] ${complete ? 'animate-pulse' : ''}`} />
       </span>
     </h1>
   );

@@ -1,4 +1,13 @@
-import { IsEmail, IsString, MinLength, MaxLength, Matches } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsEmail,
+  IsIn,
+  IsNotEmpty,
+  IsString,
+  MinLength,
+  MaxLength,
+  Matches,
+} from 'class-validator';
 
 export class RegisterDto {
   @IsEmail({}, { message: 'Email must be valid' })
@@ -21,8 +30,15 @@ export class RegisterDto {
   lastName: string;
 
   @IsString()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsNotEmpty({ message: 'Business name is required' })
+  @MinLength(2, { message: 'Business name must be at least 2 characters' })
+  @MaxLength(120, { message: 'Business name must not exceed 120 characters' })
   businessName: string;
 
   @IsString()
+  @IsIn(['Distribution', 'Retail', 'Wholesale', 'Other'], {
+    message: 'Business type must be Distribution, Retail, Wholesale, or Other',
+  })
   businessType: string;
 }

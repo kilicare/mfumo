@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormEvent, useMemo, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { AuthField, AuthFrame, FormError, SubmitButton } from '@/components/auth/AuthFrame';
+import { AuthLoadingOverlay } from '@/components/auth/AuthLoadingOverlay';
 import { useAuthStore } from '@/store/authStore';
 
 const passwordRules = [
@@ -20,7 +21,7 @@ export default function RegisterPage() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [businessName, setBusinessName] = useState('');
-  const [businessType, setBusinessType] = useState('Distribution');
+  const [businessType, setBusinessType] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -41,6 +42,10 @@ export default function RegisterPage() {
     }
     if (!businessName.trim()) {
       setError('Enter your business name.');
+      return;
+    }
+    if (!businessType) {
+      setError('Select your business type.');
       return;
     }
     if (!matchedRules.every(Boolean)) {
@@ -71,6 +76,7 @@ export default function RegisterPage() {
   }
 
   return (
+    <>
     <AuthFrame eyebrow="Start your workspace" title="Create your business account" description="Set up secure access for your team and bring your operations together.">
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         <FormError message={error} />
@@ -82,7 +88,8 @@ export default function RegisterPage() {
         <AuthField label="Business name" id="businessName" autoComplete="organization" placeholder="Your business" value={businessName} onChange={setBusinessName} disabled={isSubmitting} />
         <div>
           <label htmlFor="businessType" className="mb-2 block text-sm font-semibold text-white">Business type</label>
-          <select id="businessType" name="businessType" value={businessType} onChange={(event) => setBusinessType(event.target.value)} disabled={isSubmitting} className="h-12 w-full rounded-xl border border-[#dfe1db] bg-white px-4 text-sm text-[#20231f] shadow-sm shadow-black/[0.02] focus:border-[#bd963a] focus:outline-none focus:ring-4 focus:ring-[#d9ad42]/15 disabled:opacity-60">
+          <select id="businessType" name="businessType" value={businessType} onChange={(event) => setBusinessType(event.target.value)} disabled={isSubmitting} className="h-12 w-full rounded-xl border border-[#dfe1db] bg-white px-4 text-sm text-[#20231f] shadow-sm shadow-black/[0.02] focus:border-[#8aa91a] focus:outline-none focus:ring-4 focus:ring-[#d8f04b]/15 disabled:opacity-60">
+            <option value="">Select business type</option>
             <option value="Distribution">Distribution</option>
             <option value="Retail">Retail</option>
             <option value="Wholesale">Wholesale</option>
@@ -100,5 +107,7 @@ export default function RegisterPage() {
         <p className="text-center text-sm text-white/75">Already have an account? <Link href="/login" className="font-semibold text-white underline-offset-4 hover:underline">Sign in</Link></p>
       </form>
     </AuthFrame>
+    {isSubmitting ? <AuthLoadingOverlay message="Creating your workspace…" /> : null}
+    </>
   );
 }

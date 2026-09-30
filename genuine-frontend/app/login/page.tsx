@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import { Eye, EyeOff, LockKeyhole } from 'lucide-react';
-import { AuthField, AuthFrame, FormError, SubmitButton } from '@/components/auth/AuthFrame';
+import { AuthField, AuthFrame, FormError } from '@/components/auth/AuthFrame';
+import { AuthLoadingOverlay } from '@/components/auth/AuthLoadingOverlay';
 import { useAuthStore } from '@/store/authStore';
 
 export default function LoginPage() {
@@ -41,6 +42,7 @@ export default function LoginPage() {
   }
 
   return (
+    <>
     <AuthFrame eyebrow="Welcome back" title="Sign in to your workspace" description="Use your business account details to continue.">
       <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <FormError message={error} />
@@ -58,12 +60,21 @@ export default function LoginPage() {
           suffix={<button type="button" onClick={() => setShowPassword((shown) => !shown)} aria-label={showPassword ? 'Hide password' : 'Show password'} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-[#777b73] hover:text-[#20231f]">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>}
         />
         <div className="-mt-2 flex justify-end">
-          <Link href="/forgot-password" className="text-sm font-semibold text-[#f0cf74] hover:text-white">Forgot password?</Link>
+          <Link href="/forgot-password" className="text-sm font-semibold text-[#d8f04b] hover:text-white">Forgot password?</Link>
         </div>
-        <SubmitButton loading={isSubmitting}>Sign in <span aria-hidden="true">→</span></SubmitButton>
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          aria-busy={isSubmitting}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#20211f] px-5 text-sm font-semibold text-white shadow-lg shadow-[#20211f]/15 transition hover:bg-[#363a33] focus:outline-none focus:ring-4 focus:ring-[#20211f]/20 disabled:cursor-wait disabled:opacity-70"
+        >
+          Sign in <span aria-hidden="true">→</span>
+        </button>
         <p className="pt-1 text-center text-sm text-white/75">New to Genuine? <Link href="/register" className="font-semibold text-white underline-offset-4 hover:underline">Create an account</Link></p>
       </form>
       <div className="mt-8 flex items-center justify-center gap-2 text-xs text-white/70"><LockKeyhole size={14} /> Your sign-in is encrypted and protected.</div>
     </AuthFrame>
+    {isSubmitting ? <AuthLoadingOverlay message="Signing you in…" /> : null}
+    </>
   );
 }

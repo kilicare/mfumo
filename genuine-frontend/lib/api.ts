@@ -21,6 +21,7 @@ export interface AuthUser {
   businessName?: string;
   roles: string[];
   permissions: string[];
+  avatar?: string | null;
 }
 
 export interface AuthResponse {
@@ -57,6 +58,9 @@ export const tokenStorage = {
   },
   updateAccess(accessToken: string) {
     if (typeof window !== 'undefined') localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+  },
+  updateUser(user: AuthUser) {
+    if (typeof window !== 'undefined') localStorage.setItem(USER_KEY, JSON.stringify(user));
   },
   clear() {
     if (typeof window === 'undefined') return;
@@ -171,6 +175,12 @@ export const authAPI = {
   },
   async getProfile() {
     return unwrap<UserProfile>(await apiClient.get('/auth/me'));
+  },
+  async updateAvatar(avatar: string) {
+    return unwrap<{ avatar: string | null }>(await apiClient.patch('/auth/profile/avatar', { avatar }));
+  },
+  async getAvatar() {
+    return (await apiClient.get('/auth/profile/avatar', { responseType: 'blob' })).data as Blob;
   },
   async logout() {
     return unwrap<{ message: string }>(await apiClient.post('/auth/logout', {}));

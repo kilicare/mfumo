@@ -9,8 +9,9 @@ import {
   Get,
   Patch,
   BadRequestException,
+  Res,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
@@ -18,6 +19,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AllowAnonymous } from '../common/decorators';
 import { CurrentUser } from '../common/decorators/auth.decorator';
 import { UserId } from '../common/decorators/auth.decorator';
+import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import {
   RegisterDto,
   LoginDto,
@@ -133,6 +135,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current user info' })
   @ApiResponse({ status: 200 })
   async getCurrentUser(@CurrentUser() user: any) {
+    const profile = await this.authService.getProfile(user.id);
     return {
       id: user.id,
       email: user.email,
@@ -141,6 +144,7 @@ export class AuthController {
       lastName: user.lastName,
       businessId: user.businessId,
       businessName: user.business?.name || '',
+      avatar: profile.avatar ? `/api/v1/auth/profile/avatar?v=${Date.now()}` : null,
       roles: user.userRoles?.map((ur: any) => ur.role?.name || ur.role) || [],
       permissions:
         user.userRoles?.flatMap((ur: any) => ur.role?.permissions || []).map((p: any) => p.key) ||
@@ -156,5 +160,25 @@ export class AuthController {
   @ApiResponse({ status: 200 })
   async getProfile(@CurrentUser() user: any) {
     return this.getCurrentUser(user);
+  }
+
+  @Patch('profile/avatar')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update the current user profile photo' })
+  async updateAvatar(@CurrentUser() user: any, @Body() dto: UpdateAvatarDto) {
+    return this.authService.updateAvatar(user.id, user.businessId, dto.avatar);
+  }
+
+  @Get('profile/avatar')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get the current user profile photo' })
+  async getAvatar(@UserId() userId: string, @Res() response: Response) {
+    const avatar = await this.authService.getAvatar(userId);
+    response.setHeader('Content-Type', avatar.mimeType);
+    response.setHeader('Cache-Control', 'private, max-age=300');
+    response.send(avatar.bytes);
   }
 }

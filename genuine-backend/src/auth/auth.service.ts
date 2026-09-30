@@ -33,6 +33,75 @@ export class AuthService {
     private notifications: NotificationsService,
   ) {}
 
+  async getProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatar: true },
+    });
+    if (!user) throw new UnauthorizedException('User not found');
+    return { avatar: user.avatar };
+  }
+
+  async getAvatar(userId: string): Promise<{ bytes: Buffer; mimeType: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatar: true },
+    });
+    if (!user?.avatar) throw new BadRequestException('Profile photo not found');
+    const encoded = user.avatar.match(/^data:(image\/webp);base64,([A-Za-z0-9+/]+={0,2})$/);
+    if (!encoded) throw new BadRequestException('Profile photo is invalid');
+    const bytes = Buffer.from(encoded[2], 'base64');
+    if (
+      bytes.length === 0 ||
+      bytes.length > 65_536 ||
+      bytes.length < 12 ||
+      bytes.toString('ascii', 0, 4) !== 'RIFF' ||
+      bytes.toString('ascii', 8, 12) !== 'WEBP'
+    ) {
+      throw new BadRequestException('Profile photo is invalid');
+    }
+    return { bytes, mimeType: encoded[1] };
+  }
+
+  async updateAvatar(userId: string, businessId: string, avatar: string) {
+    const normalizedAvatar = avatar || null;
+    if (normalizedAvatar) {
+      const encoded = normalizedAvatar.match(/^data:image\/webp;base64,([A-Za-z0-9+/]+={0,2})$/);
+      if (!encoded) throw new BadRequestException('Use a valid WebP profile photo');
+      const bytes = Buffer.from(encoded[1], 'base64');
+      if (
+        bytes.length === 0 ||
+        bytes.length > 65_536 ||
+        bytes.toString('ascii', 0, 4) !== 'RIFF' ||
+        bytes.toString('ascii', 8, 12) !== 'WEBP'
+      ) {
+        throw new BadRequestException('Profile photo must be a valid WebP image under 64 KB');
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findFirst({
+        where: { id: userId, businessId },
+        select: { id: true, avatar: true },
+      });
+      if (!user) throw new UnauthorizedException('User not found');
+      await tx.user.update({ where: { id: userId }, data: { avatar: normalizedAvatar } });
+      await tx.auditLog.create({
+        data: {
+          businessId,
+          userId,
+          action: 'UPDATE',
+          entityType: 'UserProfile',
+          entityId: userId,
+          description: normalizedAvatar ? 'Updated profile photo' : 'Removed profile photo',
+          beforeData: JSON.stringify({ hasAvatar: Boolean(user.avatar) }),
+          afterData: JSON.stringify({ hasAvatar: Boolean(normalizedAvatar) }),
+        },
+      });
+      return { avatar: normalizedAvatar ? `/api/v1/auth/profile/avatar?v=${Date.now()}` : null };
+    });
+  }
+
   async register(dto: RegisterDto, ipAddress = 'unknown'): Promise<AuthResponseDto> {
     this.logger.log(`[AUTH] Register attempt: ${dto.email}`);
     const normalizedEmail = dto.email.trim().toLowerCase();
@@ -287,7 +356,7 @@ export class AuthService {
 
   async forgotPassword(dto: ForgotPasswordDto): Promise<PasswordResetRequestDto> {
     const normalizedEmail = dto.email.trim().toLowerCase();
-    this.logger.log(`[AUTH] Forgot password request: ${normalizedEmail}`);
+    this.logger.log('[AUTH] Forgot password request received');
 
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
@@ -304,6 +373,7 @@ export class AuthService {
         sub: user.id,
         email: user.email,
         type: 'password-reset',
+        jti: uuid(),
       },
       {
         secret: this.config.get('JWT_RESET_SECRET'),
@@ -381,7 +451,7 @@ export class AuthService {
       await tx.userSession.deleteMany({ where: { userId: user.id } });
     });
 
-    this.logger.log(`[AUTH] Password reset successful: ${user.email}`);
+    this.logger.log('[AUTH] Password reset successful');
 
     return { message: 'Password reset successful' };
   }
@@ -693,10 +763,10 @@ export class AuthService {
         firstName,
         resetLink: resetUrl.toString(),
       });
-      if (queued) this.logger.log(`[AUTH] Password reset email queued for ${email}`);
+      if (queued) this.logger.log('[AUTH] Password reset email queued');
     } catch {
       // Keep account existence private and do not return or log the reset token.
-      this.logger.error(`[AUTH] Unable to queue password reset email for ${email}`);
+      this.logger.error('[AUTH] Unable to queue password reset email');
     }
   }
 }

@@ -1147,9 +1147,9 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
         port: secret.smtpPort,
         secure: secret.secure,
         auth: { user: secret.smtpUsername, pass: secret.smtpPassword },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000,
+        connectionTimeout: 20000,
+        greetingTimeout: 20000,
+        socketTimeout: 60000,
       });
       let timeout: NodeJS.Timeout | undefined;
       try {
@@ -1163,8 +1163,8 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
           new Promise<never>((_resolve, reject) => {
             timeout = setTimeout(() => {
               transporter.close();
-              reject(new Error('Email provider connection timed out'));
-            }, 15000);
+              reject(new Error('Email provider delivery timed out'));
+            }, 60000);
           }),
         ]);
         return sent.messageId;

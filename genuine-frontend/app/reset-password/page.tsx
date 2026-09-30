@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
 import { ArrowLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { AuthField, AuthFrame, FormError, SubmitButton } from '@/components/auth/AuthFrame';
+import { AuthLoadingOverlay } from '@/components/auth/AuthLoadingOverlay';
 import { authAPI, getApiError } from '@/lib/api';
 
 export default function ResetPasswordPage() {
@@ -18,8 +19,12 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const resetToken = new URLSearchParams(window.location.search).get('token') || '';
     setToken(resetToken);
-    // Keep the one-time credential out of subsequent address-bar copies and navigation.
-    window.history.replaceState(null, '', window.location.pathname);
+    // In React Strict Mode, development effects are replayed. Defer URL cleanup
+    // until the replay has finished so both setups can capture the same token.
+    const cleanupFrame = window.requestAnimationFrame(() => {
+      window.history.replaceState(null, '', window.location.pathname);
+    });
+    return () => window.cancelAnimationFrame(cleanupFrame);
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -49,13 +54,14 @@ export default function ResetPasswordPage() {
   }
 
   return (
+    <>
     <AuthFrame eyebrow="Account recovery" title={success ? 'Password updated' : 'Choose a new password'} description={success ? 'Your password has been changed. Sign in with the new password to continue.' : 'Choose a strong password you have not used for this account before.'}>
       {success ? (
         <div className="rounded-2xl border border-[#dce8df] bg-[#f0f7f2] p-5 text-center">
           <CheckCircle2 className="mx-auto text-[#26804b]" size={30} />
           <p className="mt-3 font-semibold text-[#214a32]">Password reset complete</p>
           <p className="mt-1 text-sm text-[#5b7261]">For your security, all existing sessions have been signed out.</p>
-          <Link href="/login" className="mt-5 inline-flex h-11 items-center justify-center rounded-xl bg-[#173d31] px-5 text-sm font-semibold text-white hover:bg-[#205343]">Go to sign in</Link>
+          <Link href="/login" className="mt-5 inline-flex h-11 items-center justify-center rounded-xl bg-[#20211f] px-5 text-sm font-semibold text-white hover:bg-[#363a33]">Go to sign in</Link>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-5" noValidate>
@@ -68,5 +74,7 @@ export default function ResetPasswordPage() {
       )}
       {!success ? <Link href="/login" className="mt-7 flex items-center justify-center gap-2 text-sm font-semibold text-white/80 hover:text-white"><ArrowLeft size={16} /> Back to sign in</Link> : null}
     </AuthFrame>
+    {isSubmitting ? <AuthLoadingOverlay message="Updating your password…" /> : null}
+    </>
   );
 }

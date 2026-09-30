@@ -7,8 +7,8 @@
   --ink: #151713;
   --muted: #73766f;
   --line: #e8e9e5;
-  --gold: #d9ad42;
-  --forest: #173d31;
+  --accent-lime: #c9e600;
+  --brand-charcoal: #20211f;
 }
 
 * { box-sizing: border-box; }
@@ -24,10 +24,10 @@ body {
 }
 button, input, select { font: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
-  outline: 3px solid rgb(217 173 66 / 55%);
+  outline: 3px solid rgb(201 230 0 / 75%);
   outline-offset: 2px;
 }
-::selection { background: rgb(217 173 66 / 30%); }
+::selection { background: rgb(201 230 0 / 38%); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { border-radius: 999px; background: #c9cbc4; }
 ::-webkit-scrollbar-track { background: transparent; }

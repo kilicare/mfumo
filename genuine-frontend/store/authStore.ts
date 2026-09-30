@@ -16,6 +16,7 @@ interface AuthState {
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   clearError: () => void;
   syncToken: () => void;
+  updateUser: (user: AuthUser) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -100,4 +101,8 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   clearError: () => set({ error: null }),
   syncToken: () => set({ accessToken: tokenStorage.readAccess() }),
+  updateUser: (user) => {
+    tokenStorage.updateUser(user);
+    set({ user });
+  },
 }));
