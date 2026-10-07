@@ -8,47 +8,59 @@ export function AuthLoadingOverlay({ message }: { message: string }) {
       role="status"
       aria-live="polite"
       aria-label={message}
-      className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[#20211f]/75 backdrop-blur-md"
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[#172018]/40 backdrop-blur-xl"
     >
       <div className="relative flex flex-col items-center">
-        <div className="relative flex h-40 w-40 items-center justify-center">
-          <svg viewBox="0 0 160 160" className="absolute inset-0 h-full w-full" aria-hidden="true">
+        <div className="relative flex h-[120px] w-[120px] items-center justify-center">
+          <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" aria-hidden="true">
             <circle
-              cx="80"
-              cy="80"
-              r="66"
+              cx="60"
+              cy="60"
+              r="53"
               fill="none"
-              stroke="#d8f04b"
-              strokeWidth="4"
-              strokeDasharray="128 287"
+              stroke="#d8b454"
+              strokeWidth="3.5"
+              strokeDasharray="72 261"
               strokeLinecap="butt"
               className="origin-center animate-spin motion-reduce:animate-none"
-              style={{ animationDuration: '3.2s' }}
+              style={{ animationDuration: '3.8s' }}
             />
             <circle
-              cx="80"
-              cy="80"
-              r="56"
+              cx="60"
+              cy="60"
+              r="43"
               fill="none"
-              stroke="white"
+              stroke="#e9dfbd"
               strokeWidth="3"
-              strokeDasharray="104 248"
+              strokeDasharray="57 213"
               strokeLinecap="butt"
               className="origin-center motion-reduce:animate-none"
-              style={{ animation: 'auth-loader-spin 2.4s linear infinite reverse' }}
+              style={{ animation: 'auth-loader-spin 2.8s linear infinite reverse' }}
+            />
+            <circle
+              cx="60"
+              cy="60"
+              r="33"
+              fill="none"
+              stroke="#91b59d"
+              strokeWidth="2.5"
+              strokeDasharray="42 165"
+              strokeLinecap="butt"
+              className="origin-center animate-spin motion-reduce:animate-none"
+              style={{ animationDuration: '2.1s' }}
             />
           </svg>
-          <div className="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full bg-[#101b2e] shadow-lg shadow-black/20">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#101b2e] shadow-lg shadow-black/20">
             <Image
               src="/GGENUINE_FULL_BRAND_PACKAGE/logos/png/g-genuine-symbol-128x128.png"
               alt="G Genuine"
-              width={48}
-              height={48}
-              className="h-12 w-12 object-contain"
+              width={32}
+              height={32}
+              className="h-8 w-8 object-contain"
             />
           </div>
         </div>
-        <p className="mt-5 text-center text-base font-semibold tracking-wide text-white">
+        <p className="mt-4 text-center text-sm font-semibold tracking-wide text-white">
           {message}
         </p>
       </div>

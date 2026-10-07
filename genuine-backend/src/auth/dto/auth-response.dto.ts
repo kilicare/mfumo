@@ -8,6 +8,7 @@ export class AuthResponseDto {
     name: string;
     firstName: string;
     lastName: string;
+    avatar: string | null;
     businessId: string;
     businessName: string;
     roles: string[];

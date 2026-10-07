@@ -168,7 +168,7 @@ export class BusinessController {
   @RequirePermission('settings.view')
   @ApiOperation({ summary: 'Get all units' })
   @ApiResponse({ status: 200 })
-  async getUnits() {
-    return this.businessService.getUnits();
+  async getUnits(@Business() businessId: string) {
+    return this.businessService.getUnits(businessId);
   }
 }

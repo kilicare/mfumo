@@ -2,13 +2,20 @@ import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import cors from 'cors';
 import compression from 'compression';
+import express from 'express';
 import { AppModule } from './app.module';
 import { LoggerService } from './common/logger/logger.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: new LoggerService(),
+    bodyParser: false,
   });
+
+  // Product photos are compressed to WebP in the browser before upload.
+  // Allow a bounded batch while keeping request size finite.
+  app.use(express.json({ limit: '2mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
   const logger = new LoggerService();
 

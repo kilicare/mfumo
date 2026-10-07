@@ -214,13 +214,16 @@ async function main() {
   ];
 
   for (const unit of units) {
-    await prisma.unit.create({
-      data: {
-        name: unit.name,
-        symbol: unit.symbol,
-        isSystem: true,
-      },
-    });
+    const existing = await prisma.unit.findFirst({ where: { businessId: null, name: unit.name } });
+    if (!existing) {
+      await prisma.unit.create({
+        data: {
+          name: unit.name,
+          symbol: unit.symbol,
+          isSystem: true,
+        },
+      });
+    }
   }
 
   console.log(`✅ ${units.length} default units created`);

@@ -4,10 +4,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, ChevronDown, CircleDollarSign, FileBarChart2, HelpCircle, LayoutDashboard, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, ShoppingCart, Store, Truck, UserRound, UsersRound, Warehouse, X, Settings2, Receipt, ImagePlus, Trash2, Loader2 } from 'lucide-react';
+import { ArrowUpRight, Bell, ChevronDown, CircleDollarSign, Eye, FileBarChart2, HelpCircle, LayoutDashboard, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, ShoppingCart, Store, Truck, UserRound, UsersRound, Warehouse, X, Settings2, Receipt, ImagePlus, Trash2, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { authAPI, getApiError } from '@/lib/api';
 import { notify } from '@/components/ui/AppToaster';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { RouteTransitionOverlay } from './RouteTransitionOverlay';
+import { AuthLoadingOverlay } from '@/components/auth/AuthLoadingOverlay';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -21,11 +24,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
+  const avatarButton = useRef<HTMLButtonElement>(null);
+  const avatarPreviewCloseButton = useRef<HTMLButtonElement>(null);
   const avatarObjectUrl = useRef<string | null>(null);
 
   const replaceAvatarUrl = useCallback((nextUrl: string | null) => {
@@ -87,6 +93,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (status === 'anonymous') router.replace('/login');
   }, [status, router]);
+
+  useEffect(() => {
+    if (!avatarPreviewOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const avatarTrigger = avatarButton.current;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAvatarPreviewOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', closeOnEscape);
+    avatarPreviewCloseButton.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeOnEscape);
+      avatarTrigger?.focus();
+    };
+  }, [avatarPreviewOpen]);
 
   async function handleLogout() {
     setIsSigningOut(true);
@@ -161,15 +184,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   if (status !== 'authenticated' || !user) {
-    return <main className="grid min-h-screen place-items-center bg-[#f7f7f4] px-5"><div className="flex items-center gap-3 text-sm text-[#73766f]"><span className="h-5 w-5 animate-spin rounded-full border-2 border-[#c8cbc3] border-t-[#20211f]" />Verifying your secure session…</div></main>;
+    return <AuthLoadingOverlay message="Verifying your secure session…" />;
   }
 
   const navItems = [
     { label: 'Overview', href: '/dashboard', icon: LayoutDashboard, active: pathname === '/dashboard' },
     { label: 'Sales', href: '#', icon: ShoppingCart, active: false, comingSoon: true },
-    { label: 'Products', href: '#', icon: Package, active: false, comingSoon: true },
+    { label: 'Products', href: '/dashboard/products', icon: Package, active: pathname.startsWith('/dashboard/products') },
     { label: 'Inventory', href: '#', icon: Warehouse, active: false, comingSoon: true },
-    { label: 'Purchases', href: '#', icon: Truck, active: false, comingSoon: true },
+    { label: 'Purchases', href: '/dashboard/purchases', icon: Truck, active: pathname.startsWith('/dashboard/purchases') },
     { label: 'Customers', href: '#', icon: UsersRound, active: false, comingSoon: true },
     { label: 'Suppliers', href: '#', icon: UserRound, active: false, comingSoon: true },
     { label: 'Payments & Finance', href: '#', icon: CircleDollarSign, active: false, comingSoon: true },
@@ -177,13 +200,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { label: 'Reports & Analytics', href: '#', icon: FileBarChart2, active: false, comingSoon: true },
     { label: 'Settings', href: '/dashboard/security', icon: Settings2, active: pathname.startsWith('/dashboard/security') },
   ];
+  const navGroups = [
+    { label: 'Workspace', items: navItems.filter(({ label }) => label === 'Overview') },
+    { label: 'Operations', items: navItems.filter(({ label }) => ['Sales', 'Products', 'Inventory', 'Purchases', 'Customers', 'Suppliers'].includes(label)) },
+    { label: 'Finance', items: navItems.filter(({ label }) => ['Payments & Finance', 'Expenses'].includes(label)) },
+    { label: 'Insights', items: navItems.filter(({ label }) => label === 'Reports & Analytics') },
+    { label: 'Account', items: navItems.filter(({ label }) => label === 'Settings') },
+  ];
   const initials = `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase() || user.email[0].toUpperCase();
 
   return (
-    <div className="min-h-screen bg-[#f5f6f2] lg:flex">
+    <div className="min-h-screen min-w-0 bg-[#f5f6f2] lg:flex">
       {mobileMenuOpen ? <button aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} className="fixed inset-0 z-30 bg-black/40 lg:hidden" /> : null}
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[270px] flex-col bg-[#20211f] px-5 py-6 text-white transition-all duration-200 lg:static lg:translate-x-0 ${sidebarCollapsed ? 'lg:w-[84px] lg:px-3' : 'lg:w-[270px]'} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className={`flex items-center ${compactSidebar ? 'justify-center lg:px-0' : 'justify-between px-2'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[270px] flex-col overflow-hidden bg-[#20211f] px-5 py-6 text-white transition-all duration-200 lg:sticky lg:top-0 lg:h-screen lg:self-start lg:translate-x-0 ${sidebarCollapsed ? 'lg:w-[84px] lg:px-3' : 'lg:w-[270px]'} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className={`flex shrink-0 items-center ${compactSidebar ? 'justify-center lg:px-0' : 'justify-between px-2'}`}>
           <Link href="/dashboard" className="flex min-w-0 items-center" aria-label="Genuine dashboard" title="Genuine dashboard">
             {compactSidebar ? <Image src="/GGENUINE_FULL_BRAND_PACKAGE/logos/svg/logo-symbol-monochrome-white.svg" alt="G Genuine" width={64} height={64} priority className="h-10 w-10" /> : <Image src="/GGENUINE_FULL_BRAND_PACKAGE/logos/svg/logo-horizontal-white.svg" alt="G Genuine — Trust, Build, Grow" width={900} height={220} priority className="h-auto w-[180px]" />}
           </Link>
@@ -192,55 +222,91 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
           </button>
         </div>
-        <div className={`mt-9 rounded-xl border border-white/10 bg-white/[0.04] ${compactSidebar ? 'flex justify-center p-2.5' : 'px-3.5 py-3'}`} title={compactSidebar ? user.businessName || 'Your business' : undefined}>
+        <div className={`mt-9 shrink-0 rounded-xl border border-white/10 bg-white/[0.04] ${compactSidebar ? 'flex justify-center p-2.5' : 'px-3.5 py-3'}`} title={compactSidebar ? user.businessName || 'Your business' : undefined}>
           {compactSidebar ? <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#c9e600] text-sm font-bold text-[#20211f]"><Store size={17} /></span> : <><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/40">Current workspace</p><p className="mt-1.5 truncate text-sm font-medium">{user.businessName || 'Your business'}</p></>}
         </div>
-        {!compactSidebar ? <p className="mb-3 mt-9 px-3 text-[10px] font-bold uppercase tracking-[0.17em] text-white/35">Workspace</p> : <div className="mt-9" />}
-        <nav aria-label="Main navigation" className="min-h-0 flex-1 space-y-1 overflow-y-auto">
-          {navItems.map(({ label, href, icon: Icon, active, comingSoon }) => (
-            comingSoon ? (
-              <button key={label} type="button" disabled aria-label={`${label} coming soon`} title={compactSidebar ? `${label} (coming soon)` : undefined} className={`flex w-full cursor-not-allowed items-center rounded-xl py-2.5 text-left text-sm text-white/35 ${compactSidebar ? 'justify-center px-0' : 'gap-3 px-3'}`}>
-                <Icon size={17} strokeWidth={1.8} />{!compactSidebar ? <>{label}<span className="ml-auto text-[9px] uppercase tracking-wider text-white/30">Soon</span></> : null}
-              </button>
-            ) : (
-              <Link key={label} href={href} onClick={() => setMobileMenuOpen(false)} aria-label={compactSidebar ? label : undefined} title={compactSidebar ? label : undefined} className={`flex items-center rounded-xl py-2.5 text-sm transition ${compactSidebar ? 'justify-center px-0' : 'gap-3 px-3'} ${active ? 'bg-[#d8f04b] font-semibold text-[#20211f]' : 'text-white/70 hover:bg-white/[0.07] hover:text-white'}`}>
-                <Icon size={17} strokeWidth={1.8} />{!compactSidebar ? label : null}
-              </Link>
-            )
+        <nav aria-label="Main navigation" className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pb-3">
+          {navGroups.map(({ label: groupLabel, items }, groupIndex) => (
+            <section key={groupLabel} aria-label={`${groupLabel} navigation`}>
+              {compactSidebar ? (
+                groupIndex > 0 ? <div aria-hidden="true" className="mx-2 mb-2 border-t border-[#d8b454]/20" /> : null
+              ) : (
+                <h2 className={`mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[#d8b454] ${groupIndex === 0 ? 'mt-1' : ''}`}>{groupLabel}</h2>
+              )}
+              <div className="space-y-1">
+                {items.map(({ label, href, icon: Icon, active, comingSoon }) => (
+                  comingSoon ? (
+                    <button key={label} type="button" disabled aria-label={`${label} coming soon`} title={compactSidebar ? `${label} (coming soon)` : undefined} className={`flex w-full cursor-not-allowed items-center rounded-xl py-2.5 text-left text-sm text-white/35 ${compactSidebar ? 'justify-center px-0' : 'gap-3 px-3'}`}>
+                      <Icon size={17} strokeWidth={1.8} />{!compactSidebar ? <>{label}<span className="ml-auto text-[9px] uppercase tracking-wider text-white/30">Soon</span></> : null}
+                    </button>
+                  ) : (
+                    <Link key={label} href={href} onClick={() => setMobileMenuOpen(false)} aria-label={compactSidebar ? label : undefined} title={compactSidebar ? label : undefined} className={`flex items-center rounded-xl py-2.5 text-sm transition ${compactSidebar ? 'justify-center px-0' : 'gap-3 px-3'} ${active ? 'bg-[#d8f04b] font-semibold text-[#20211f]' : 'text-white/70 hover:bg-white/[0.07] hover:text-white'}`}>
+                      <Icon size={17} strokeWidth={1.8} />{!compactSidebar ? label : null}
+                    </Link>
+                  )
+                ))}
+              </div>
+            </section>
           ))}
         </nav>
-        <div className={`mt-5 rounded-xl border border-white/10 bg-white/[0.04] ${compactSidebar ? 'flex justify-center p-3' : 'p-3.5'}`} title={compactSidebar ? 'Need a hand? Your workspace is ready.' : undefined}>
-          {compactSidebar ? <HelpCircle size={18} className="text-[#d8f04b]" /> : <><div className="flex items-center gap-2 text-xs font-semibold text-white/80"><HelpCircle size={15} className="text-[#d8f04b]" />Need a hand?</div><p className="mt-2 text-[11px] leading-5 text-white/45">Your workspace is ready. More tools will appear as modules are added.</p></>}
+        <div className={`mt-4 shrink-0 rounded-2xl border border-[#d8f04b]/20 bg-[radial-gradient(ellipse_at_top_left,_rgba(216,240,75,0.16),_transparent_65%),linear-gradient(145deg,_#1b3329,_#171a18_78%)] shadow-lg shadow-black/20 ${compactSidebar ? 'p-2' : 'p-3.5'}`}>
+          {user.permissions?.includes('purchases.create') ? (
+            compactSidebar ? (
+              <Link href="/dashboard/purchases/orders/new" aria-label="Create purchase order" title="Keep stock ready — create purchase order" className="grid h-10 w-full place-items-center rounded-xl bg-[#d8f04b] text-[#20211f] transition hover:bg-[#e6f88a]"><Truck size={18} /></Link>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 text-xs font-bold text-white/90"><span className="grid h-7 w-7 place-items-center rounded-lg bg-[#d8f04b]/15 text-[#d8f04b]"><Truck size={15} /></span>Keep stock ready</div>
+                <p className="mt-2 text-[11px] leading-4 text-white/60">Restock before popular products run out and you miss a sale.</p>
+                <Link href="/dashboard/purchases/orders/new" className="mt-3 flex min-h-9 items-center justify-between gap-2 rounded-lg bg-[#d8f04b] px-3 text-[11px] font-bold text-[#20211f] transition hover:bg-[#e6f88a]">Create purchase order<ArrowUpRight size={14} /></Link>
+              </>
+            )
+          ) : (
+            compactSidebar ? <HelpCircle className="mx-auto text-[#d8f04b]" size={18} aria-label="Workspace help" /> : <><div className="flex items-center gap-2 text-xs font-semibold text-white/80"><HelpCircle size={15} className="text-[#d8f04b]" />Need a hand?</div><p className="mt-2 text-[11px] leading-5 text-white/50">Your workspace is ready. More tools will appear as modules are added.</p></>
+          )}
         </div>
       </aside>
 
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-20 flex h-[70px] items-center justify-between border-b border-[#e8e9e5] bg-white/90 px-4 backdrop-blur sm:px-7 lg:px-10">
-          <div className="flex min-w-0 items-center gap-3">
+        <header className="sticky top-0 z-20 flex h-[70px] min-w-0 items-center justify-between gap-2 border-b border-[#e8e9e5] bg-white/90 px-3 backdrop-blur sm:px-7 lg:px-10">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <button type="button" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation" className="rounded-lg p-2 text-[#4f544c] hover:bg-[#f1f2ee] lg:hidden"><Menu size={19} /></button>
-            <div><p className="text-xs text-[#858880]">Workspace / <span className="text-[#343832]">Overview</span></p><p className="mt-0.5 truncate text-sm font-semibold text-[#20231f]">Business overview</p></div>
+            <div className="min-w-0"><p className="truncate text-xs text-[#858880]">Workspace / <span className="text-[#343832]">Overview</span></p><p className="mt-0.5 truncate text-sm font-semibold text-[#20231f]">Business overview</p></div>
           </div>
-          <div className="flex items-center gap-3 sm:gap-5">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-5">
+            <ThemeToggle />
             <button type="button" aria-label="Notifications" disabled className="relative rounded-xl bg-[#f0f7c9] p-2 text-[#596b05] transition hover:bg-[#e7f49d] disabled:cursor-not-allowed"><Bell size={18} /><span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full border border-white bg-[#c9e600]" /></button>
             <div className="hidden h-8 w-px bg-[#e8e9e5] sm:block" />
             <div className="relative" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setAccountMenuOpen(false); }}>
-              <button type="button" aria-label="Open account menu" aria-haspopup="menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition hover:bg-[#f4f6ef] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9dbb16]">
+              <button ref={avatarButton} type="button" aria-label="Open account menu" aria-haspopup="menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition hover:bg-[#f4f6ef] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9dbb16]">
                 {avatarUrl ? <Image src={avatarUrl} alt="Profile" width={36} height={36} unoptimized className="h-9 w-9 shrink-0 rounded-full object-cover ring-2 ring-[#e4f28a]" /> : <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#e4f28a] text-xs font-bold text-[#354400]">{initials}</span>}
                 <span className="hidden min-w-0 sm:block"><span className="block max-w-40 truncate text-xs font-semibold text-[#30342e]">{user.name || `${user.firstName} ${user.lastName}`}</span><span className="mt-0.5 block max-w-40 truncate text-[10px] text-[#73766f]">{user.roles?.[0] || 'Team member'}</span></span>
                 <ChevronDown size={14} className={`hidden text-[#596b05] transition sm:block ${accountMenuOpen ? 'rotate-180' : ''}`} />
               </button>
+              <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="Choose profile photo" onChange={(event) => void handleAvatarChange(event.target.files?.[0])} />
               {accountMenuOpen ? <div role="menu" aria-label="Account options" className="absolute right-0 top-full z-30 mt-2 w-56 rounded-xl border border-[#e2e7d3] bg-white p-1.5 shadow-xl shadow-black/10">
-                <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="Choose profile photo" onChange={(event) => void handleAvatarChange(event.target.files?.[0])} />
+                {avatarUrl ? <button type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); setAvatarPreviewOpen(true); }} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-semibold text-[#30342e] transition hover:bg-[#f0f7c9] hover:text-[#354400]"><Eye size={16} className="text-[#70820f]" />View profile photo</button> : null}
                 <button type="button" role="menuitem" disabled={avatarBusy} onClick={() => photoInput.current?.click()} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-semibold text-[#30342e] transition hover:bg-[#f0f7c9] hover:text-[#354400] disabled:opacity-60">{avatarBusy ? <Loader2 size={16} className="animate-spin text-[#70820f]" /> : <ImagePlus size={16} className="text-[#70820f]" />}{avatarBusy ? 'Saving photo…' : avatarUrl ? 'Change profile photo' : 'Add profile photo'}</button>
                 {avatarUrl ? <button type="button" role="menuitem" disabled={avatarBusy} onClick={() => void handleRemoveAvatar()} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-semibold text-[#a63832] transition hover:bg-[#fff0ed] disabled:opacity-60"><Trash2 size={16} />Remove profile photo</button> : null}
                 <Link href="/dashboard/security" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-semibold text-[#30342e] transition hover:bg-[#f0f7c9] hover:text-[#354400]"><Settings2 size={16} className="text-[#70820f]" />Change password</Link>
               </div> : null}
             </div>
-            <button type="button" onClick={handleLogout} disabled={isSigningOut} aria-label={isSigningOut ? 'Signing out' : 'Sign out'} className="flex items-center gap-2 rounded-lg border border-[#e8e9e5] px-3 py-2 text-xs font-semibold text-[#545850] transition hover:border-[#cbd0c6] hover:bg-[#f8f9f6] disabled:opacity-60"><LogOut size={15} /><span className="hidden md:inline">{isSigningOut ? 'Signing out' : 'Sign out'}</span></button>
+            <button type="button" onClick={handleLogout} disabled={isSigningOut} aria-label={isSigningOut ? 'Signing out' : 'Sign out'} className="flex items-center gap-2 rounded-lg border border-[#e8e9e5] px-2 py-2 text-xs font-semibold text-[#545850] transition hover:border-[#cbd0c6] hover:bg-[#f8f9f6] disabled:opacity-60 sm:px-3"><LogOut size={15} /><span className="hidden md:inline">{isSigningOut ? 'Signing out' : 'Sign out'}</span></button>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1500px] p-4 sm:p-7 lg:p-10">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-[1500px] p-3 sm:p-7 lg:p-10">{children}</main>
       </div>
+      {avatarPreviewOpen && avatarUrl ? <div role="dialog" aria-modal="true" aria-labelledby="avatar-preview-title" className="fixed inset-0 z-[70] flex items-center justify-center bg-[#10120f]/85 p-4 backdrop-blur-sm" onClick={(event) => { if (event.target === event.currentTarget) setAvatarPreviewOpen(false); }}>
+        <div className="w-full max-w-3xl rounded-2xl border border-white/10 bg-[#20211f] p-3 text-white shadow-2xl sm:p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.14em] text-[#d8f04b]">Profile photo</p><h2 id="avatar-preview-title" className="mt-1 truncate text-base font-semibold">{user.name || `${user.firstName} ${user.lastName}`}</h2></div>
+            <button ref={avatarPreviewCloseButton} type="button" aria-label="Close profile photo preview" onClick={() => setAvatarPreviewOpen(false)} className="shrink-0 rounded-xl bg-white/10 p-2 text-white transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#d8f04b]"><X size={18} /></button>
+          </div>
+          <div className="mt-4 flex min-h-48 max-h-[78vh] w-full items-center justify-center overflow-hidden rounded-xl bg-black/25 p-2 sm:p-4">
+            <Image src={avatarUrl} alt={`Profile photo of ${user.name || `${user.firstName} ${user.lastName}`}`} width={768} height={768} unoptimized className="max-h-[72vh] w-auto max-w-full rounded-lg object-contain" />
+          </div>
+        </div>
+      </div> : null}
+      <RouteTransitionOverlay />
     </div>
   );
 }

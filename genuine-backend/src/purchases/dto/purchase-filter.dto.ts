@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsNumber } from 'class-validator';
+import { IsOptional, IsString, IsIn, IsNumber, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PurchaseOrderFilterDto {
@@ -11,23 +11,25 @@ export class PurchaseOrderFilterDto {
   supplierId?: string;
 
   @IsOptional()
-  @IsEnum(['DRAFT', 'ORDERED', 'PARTIALLY_RECEIVED', 'FULLY_RECEIVED', 'CLOSED', 'CANCELLED'])
+  @IsIn(['DRAFT', 'ORDERED', 'PARTIALLY_RECEIVED', 'FULLY_RECEIVED', 'CLOSED', 'CANCELLED'])
   status?: string;
 
   @IsOptional()
   @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
   dateFrom?: string; // YYYY-MM-DD
 
   @IsOptional()
   @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
   dateTo?: string;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['poNumber', 'totalAmount', 'orderDate', 'createdAt'])
   sortBy?: string; // 'poNumber', 'totalAmount', 'orderDate', 'createdAt'
 
   @IsOptional()
-  @IsString()
+  @IsIn(['asc', 'desc'])
   sortOrder?: string; // 'asc', 'desc'
 
   @IsOptional()

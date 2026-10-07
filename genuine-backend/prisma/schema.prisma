@@ -30,6 +30,9 @@ model Business {
   periods               AccountingPeriod[]
   auditLogs             AuditLog[]
   categories            Category[]
+  units                 Unit[]
+  brands                Brand[]
+  productImages         ProductImage[]
   costingMethods        CostingMethod?
   customers             Customer[]
   customerTypes         CustomerType[]
@@ -168,8 +171,9 @@ model Category {
 
 model Unit {
   id               String        @id @default(cuid())
-  name             String        @unique
-  symbol           String        @unique
+  businessId       String?
+  name             String
+  symbol           String
   description      String?
   baseUnit         String?
   conversionFactor Float         @default(1.0)
@@ -180,8 +184,11 @@ model Unit {
   updatedAt        DateTime      @updatedAt
   productUnits     ProductUnit[]
   products         Product[]
+  business         Business?     @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  @@index([name])
+  @@unique([businessId, name])
+  @@unique([businessId, symbol])
+  @@index([businessId])
 }
 
 model ProductUnit {
@@ -201,14 +208,33 @@ model ProductUnit {
 
 model Brand {
   id          String    @id @default(cuid())
-  name        String    @unique
+  businessId  String?
+  name        String
   description String?
   logo        String?
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   products    Product[]
+  business    Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  @@index([name])
+  @@unique([businessId, name])
+  @@index([businessId])
+}
+
+model ProductImage {
+  id          String   @id
+  businessId  String
+  productId   String
+  data        Bytes    @db.ByteA
+  contentType String   @default("image/webp")
+  sortOrder   Int      @default(0)
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([productId, sortOrder])
+  @@index([businessId, productId])
 }
 
 model Product {
@@ -244,6 +270,7 @@ model Product {
   brand              Brand?                @relation(fields: [brandId], references: [id])
   defaultUnit        Unit?                 @relation(fields: [defaultUnitId], references: [id])
   units              ProductUnit[]
+  images             ProductImage[]
   purchaseItems      PurchaseOrderItem[]
   invoiceItems       SalesInvoiceItem[]
   returns            SalesReturnItem[]
@@ -254,6 +281,7 @@ model Product {
   physicalCountItems PhysicalCountItem[]
 
   @@unique([businessId, sku])
+  @@unique([businessId, id])
   @@index([businessId])
   @@index([categoryId])
   @@index([supplierId])
@@ -462,6 +490,8 @@ model PurchaseOrder {
   businessId           String
   business             Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
   poNumber             String
+  idempotencyKey       String?
+  requestFingerprint    String?
   supplierId           String
   supplier             Supplier            @relation(fields: [supplierId], references: [id])
   locationId           String
@@ -488,6 +518,7 @@ model PurchaseOrder {
   updatedAt            DateTime            @updatedAt
 
   @@unique([businessId, poNumber])
+  @@unique([businessId, idempotencyKey])
   @@index([businessId])
   @@index([supplierId])
   @@index([status])

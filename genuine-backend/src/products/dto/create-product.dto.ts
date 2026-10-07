@@ -6,7 +6,12 @@ import {
   Min,
   ValidateNested,
   ArrayMinSize,
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
+  IsInt,
+  MaxLength,
+  MinLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -14,7 +19,7 @@ class ProductUnitDto {
   @IsString()
   unitId: string;
 
-  @IsNumber()
+  @IsNumber({ allowInfinity: false, allowNaN: false })
   @Min(0.01)
   conversionFactor: number;
 
@@ -24,13 +29,18 @@ class ProductUnitDto {
 
 export class CreateProductDto {
   @IsString()
+  @MinLength(1)
+  @MaxLength(64)
   sku: string;
 
   @IsString()
+  @MinLength(1)
+  @MaxLength(160)
   name: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   description?: string;
 
   @IsString()
@@ -40,16 +50,20 @@ export class CreateProductDto {
   @IsString()
   brandId?: string;
 
-  @IsNumber()
+  @IsOptional()
+  @IsString()
+  supplierId?: string;
+
+  @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 })
   @Min(0)
   buyingPrice: number;
 
-  @IsNumber()
+  @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 })
   @Min(0)
   sellingPrice: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 })
   @Min(0)
   wholesalePrice?: number;
 
@@ -63,12 +77,19 @@ export class CreateProductDto {
   productUnits?: ProductUnitDto[];
 
   @IsOptional()
-  @IsNumber()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(180000, { each: true })
+  @ArrayMaxSize(5)
+  images?: string[];
+
+  @IsOptional()
+  @IsInt()
   @Min(0)
   minimumStock?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(0)
   reorderLevel?: number;
 
@@ -78,27 +99,31 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(128)
   barcode?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   manufacturer?: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ allowInfinity: false, allowNaN: false })
   @Min(0)
   weight?: number;
 
   @IsOptional()
   @IsString()
+  @MaxLength(80)
   color?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(80)
   size?: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(0)
   expiryDays?: number;
 

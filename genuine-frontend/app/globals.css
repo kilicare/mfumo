@@ -16,13 +16,45 @@ html { min-height: 100%; scroll-behavior: smooth; }
 body {
   min-height: 100vh;
   margin: 0;
-  background: #f7f7f4;
+  background: #f3efe6;
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Warm sea-sand canvas for light mode; white cards remain distinct above it. */
+html:not(.dark) body {
+  background: #f3efe6;
+}
+
+html:not(.dark) [class*="bg-[#f5f6f2"],
+html:not(.dark) [class*="bg-[#f7f7f4"] {
+  background-color: #f3efe6 !important;
+}
 button, input, select { font: inherit; }
+button:not(:disabled) {
+  cursor: pointer;
+  transition-property: color, background-color, border-color, box-shadow, filter, transform;
+  transition-duration: 160ms;
+  transition-timing-function: ease-out;
+}
+button:not(:disabled):hover {
+  filter: brightness(0.97);
+  box-shadow: 0 4px 14px rgb(21 23 19 / 10%);
+  transform: translateY(-1px);
+}
+button:not(:disabled):active { transform: translateY(1px); }
+a[href]:not([class*="rounded"]):not([class*="grid"]):not([class*="hover:bg"]):hover {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+a[href][class*="hover:bg"]:hover p:first-of-type {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
   outline: 3px solid rgb(201 230 0 / 75%);
   outline-offset: 2px;
@@ -36,3 +68,278 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .auth-background-video { display: none; }
   .auth-form-backdrop { background: #263b30; }
 }
+
+/* App-wide dark theme. Light mode remains the default; the account toggle
+   persists this class through next-themes on every route, including auth. */
+html.dark {
+  color-scheme: dark;
+  --ink: #e1e5de;
+  --muted: #aab2a6;
+  --line: #343b33;
+  --accent-lime: #d8f04b;
+  --brand-charcoal: #080908;
+  background: #080908;
+}
+
+html.dark body {
+  background: #080908;
+  color: #e1e5de;
+}
+
+html.dark button:not(:disabled):hover {
+  filter: brightness(1.12);
+  box-shadow: 0 5px 16px rgb(0 0 0 / 28%);
+}
+
+/* Charcoal action controls become near-black against the dark cards, with a
+   quiet lime edge so primary actions read as interactive across the app. */
+html.dark button[class*="bg-[#20211f]"],
+html.dark a[href][class*="bg-[#20211f]"] {
+  background-color: #050605 !important;
+  border: 1px solid #596347;
+  color: #e7e9e3 !important;
+}
+
+html.dark button:not(:disabled)[class*="bg-[#20211f]"]:hover,
+html.dark a[href][class*="bg-[#20211f]"]:hover {
+  background-color: #111510 !important;
+  border-color: #829600;
+  box-shadow: 0 0 18px rgb(216 240 75 / 12%);
+}
+
+html.dark ::-webkit-scrollbar-thumb { background: #454d43; }
+
+/* Existing screens use utility classes with literal light colors. Remap
+   their neutral surfaces centrally so the theme covers current and future
+   modules without changing each page's data or behavior. */
+html.dark [class~="bg-white"] {
+  background-color: #191d19 !important;
+}
+
+html.dark [class~="bg-white/90"] {
+  background-color: rgb(25 29 25 / 94%) !important;
+}
+
+html.dark [class*="bg-[#f"],
+html.dark [class*="bg-[#fb"],
+html.dark [class*="bg-[#e6e8"],
+html.dark [class*="bg-[#e6e9"],
+html.dark [class*="bg-[#e8e9"],
+html.dark [class*="bg-[#e9ebe"],
+html.dark [class*="bg-[#edf0"],
+html.dark [class*="bg-[#eef0"],
+html.dark [class*="bg-[#f0f"],
+html.dark [class*="bg-[#f1f"],
+html.dark [class*="bg-[#f3f"],
+html.dark [class*="bg-[#f4f"],
+html.dark [class*="bg-[#f5f"],
+html.dark [class*="bg-[#f7f"] {
+  background-color: #080908 !important;
+}
+
+html.dark [class*="bg-[#fbfc"],
+html.dark [class*="bg-[#f8f9"],
+html.dark [class*="bg-[#f4f6"] {
+  background-color: #1e241e !important;
+}
+
+html.dark [class*="bg-[#f0f1"],
+html.dark [class*="bg-[#f1f2"] {
+  background-color: #30372f !important;
+}
+
+html.dark [class*="bg-[#e9f7"],
+html.dark [class*="bg-[#e7f4"],
+html.dark [class*="bg-[#eef2"],
+html.dark [class*="bg-[#edf0e3"] {
+  background-color: #1d3025 !important;
+}
+
+html.dark [class*="bg-[#eaf1"],
+html.dark [class*="bg-[#eaf2"] {
+  background-color: #1d2a3b !important;
+}
+
+html.dark [class*="bg-[#fff"],
+html.dark [class*="bg-[#f0d2"],
+html.dark [class*="bg-[#efd4"],
+html.dark [class*="bg-[#efcf"] {
+  background-color: #30251d !important;
+}
+
+html.dark [class*="bg-[#fff0ed"],
+html.dark [class*="bg-[#fff7f5"],
+html.dark [class*="bg-[#fff8f6"] {
+  background-color: #351f1d !important;
+}
+
+html.dark [class*="border-[#e"],
+html.dark [class*="border-[#d"],
+html.dark [class*="border-[#c"] {
+  border-color: #343b33 !important;
+}
+
+html.dark [class*="text-[#"] {
+  color: #d3d8d0 !important;
+}
+
+/* Keep the sidebar section labels gold against its dark surface. */
+html.dark [class*="text-[#d8b454"] {
+  color: #d8b454 !important;
+}
+
+html.dark [class*="text-white"] {
+  color: rgb(214 218 211 / var(--tw-text-opacity, 1)) !important;
+}
+
+/* Preserve semantic status colors with brighter dark-theme variants. */
+html.dark [class*="text-[#10563f"],
+html.dark [class*="text-[#147554"],
+html.dark [class*="text-[#167346"],
+html.dark [class*="text-[#16734a"],
+html.dark [class*="text-[#214a32"],
+html.dark [class*="text-[#236244"],
+html.dark [class*="text-[#245d20"],
+html.dark [class*="text-[#24713c"],
+html.dark [class*="text-[#26804b"],
+html.dark [class*="text-[#2d8152"] {
+  color: #77ddb0 !important;
+}
+
+html.dark [class*="text-[#214e88"],
+html.dark [class*="text-[#315f9a"],
+html.dark [class*="text-[#315fa5"],
+html.dark [class*="text-[#3468a8"] {
+  color: #91b9ff !important;
+}
+
+html.dark [class*="text-[#a56a08"],
+html.dark [class*="text-[#93600c"],
+html.dark [class*="text-[#9a6a00"],
+html.dark [class*="text-[#7a4d11"],
+html.dark [class*="text-[#806522"],
+html.dark [class*="text-[#874400"],
+html.dark [class*="text-[#8a6822"],
+html.dark [class*="text-[#926100"] {
+  color: #ffd27a !important;
+}
+
+html.dark [class*="text-[#a63832"],
+html.dark [class*="text-[#96382f"],
+html.dark [class*="text-[#9b3730"],
+html.dark [class*="text-[#9d443e"],
+html.dark [class*="text-[#b43f31"],
+html.dark [class*="text-[#b54742"],
+html.dark [class*="text-[#842a20"] {
+  color: #ff9e93 !important;
+}
+
+html.dark [class*="text-[#7043a3"],
+html.dark [class*="text-[#513276"] {
+  color: #c8a8ee !important;
+}
+
+html.dark [class*="text-[#527000"],
+html.dark [class*="text-[#596b05"],
+html.dark [class*="text-[#617500"],
+html.dark [class*="text-[#667b00"],
+html.dark [class*="text-[#70820f"],
+html.dark [class*="text-[#71840c"],
+html.dark [class*="text-[#738900"],
+html.dark [class*="text-[#d8f04b"],
+html.dark [class*="text-[#c9e600"] {
+  color: #d8f04b !important;
+}
+
+html.dark [class*="text-[#73766f"],
+html.dark [class*="text-[#747a68"],
+html.dark [class*="text-[#777b73"],
+html.dark [class*="text-[#7b8178"],
+html.dark [class*="text-[#858880"],
+html.dark [class*="text-[#888d84"],
+html.dark [class*="text-[#8a8d85"],
+html.dark [class*="text-[#8c9185"],
+html.dark [class*="text-[#95988f"],
+html.dark [class*="text-[#9a9d95"],
+html.dark [class*="text-[#9ba094"],
+html.dark [class*="text-[#a0a39b"],
+html.dark [class*="text-[#a4a69f"],
+html.dark [class*="text-[#9a9f92"] {
+  color: #aab2a6 !important;
+}
+
+html.dark [class*="bg-[#d8f04b"][class*="text-[#20211f"],
+html.dark [class*="bg-[#c9e600"][class*="text-[#20211f"],
+html.dark [class*="bg-[#b9e52e"][class*="text-[#20211f"] {
+  color: #20211f !important;
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  color-scheme: dark;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #8c9588;
+}
+
+html.dark svg circle[fill="white"] { fill: #191d19; }
+
+/* Keep soft status fills dark enough for their text, including the selected
+   Purchases tab that uses a pale lime fill in light mode. */
+html.dark [class*="bg-[#e8f2aa"],
+html.dark [class*="bg-[#c9ef9d"],
+html.dark [class*="bg-[#e4f58c"],
+html.dark [class*="bg-[#e4f28a"],
+html.dark [class*="bg-[#e7f49d"],
+html.dark [class*="bg-[#d8f04b"],
+html.dark [class*="bg-[#c9e600"],
+html.dark [class*="bg-[#b9e52e"] {
+  background-color: #2d3a1d !important;
+  color: #d8f04b !important;
+}
+
+html.dark [class*="bg-[#ffe0b8"],
+html.dark [class*="bg-[#ffd541"],
+html.dark [class*="bg-[#ffcf24"],
+html.dark [class*="bg-[#fff0d3"] {
+  background-color: #3a3016 !important;
+  color: #ffd27a !important;
+}
+
+html.dark [class*="bg-[#ffd9d3"],
+html.dark [class*="bg-[#ffb4a8"] {
+  background-color: #351f1d !important;
+  color: #ff9e93 !important;
+}
+
+html.dark [class*="bg-[#a8ccff"] {
+  background-color: #1d2a3b !important;
+  color: #a8ccff !important;
+}
+
+html.dark [class*="bg-[#dcefe1"],
+html.dark [class*="bg-[#dce8df"],
+html.dark [class*="bg-[#c5f0d2"],
+html.dark [class*="bg-[#77ddb0"],
+html.dark [class*="bg-[#f0f7f2"] {
+  background-color: #1d3025 !important;
+  color: #9fe0b7 !important;
+}
+
+html.dark [class*="bg-[#c8a8ee"] {
+  background-color: #30243b !important;
+  color: #d7b9f6 !important;
+}
+
+html.dark [class*="bg-[#91b9ff"],
+html.dark [class*="bg-[#eaf1ff"],
+html.dark [class*="bg-[#eaf2ff"] {
+  background-color: #1d2a3b !important;
+  color: #a8ccff !important;
+}
+
+html.dark svg text[fill="#858880"] { fill: #aab2a6; }
+html.dark svg text[fill="#30342e"] { fill: #d3d8d0; }

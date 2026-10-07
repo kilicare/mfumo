@@ -4,11 +4,13 @@ export class PurchaseOrderItemResponseDto {
   productId: string;
   productName: string;
   productSku: string;
+  requiresExpiry: boolean;
   quantity: number;
   unitPrice: number;
   discount: number;
   lineTotal: number;
   grnReceivedQty: number;
+  grnAcceptedQty: number;
   returnedQty: number;
   outstandingQty: number;
   notes?: string;

@@ -897,10 +897,22 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
           body: `${variables.productName || label} has ${variables.quantity ?? 0} units at ${variables.locationName || 'the location'}; reorder threshold is ${variables.threshold ?? ''}.`,
         };
       case NotificationEventType.PURCHASE_ORDER_APPROVED:
+        {
+          const supplierName = this.escapeHtml(String(variables.supplierName || 'supplier'));
+          const currency = this.escapeHtml(String(variables.currency || ''));
+          const amount = Number(variables.totalAmount);
+          const formattedAmount = Number.isFinite(amount)
+            ? new Intl.NumberFormat('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }).format(amount)
+            : this.escapeHtml(String(variables.totalAmount ?? ''));
+          const safeLabel = this.escapeHtml(label);
         return {
-          subject: `Purchase order approved: ${label}`,
-          body: `Purchase order ${label} for ${variables.totalAmount ?? ''} has been approved.`,
+            subject: `Purchase order approved: ${safeLabel}`,
+            body: `Purchase order ${safeLabel} for ${supplierName}, totaling ${currency} ${formattedAmount}, has been approved.`,
         };
+        }
       case NotificationEventType.EXPENSE_APPROVED:
         return {
           subject: `Expense approved: ${label}`,

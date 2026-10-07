@@ -10,13 +10,17 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { Business } from '../common/decorators/business.decorator';
 import { UserId } from '../common/decorators/auth.decorator';
 import { RequirePermission } from '../common/decorators/permission.decorator';
 import { ProductService } from './product.service';
+import { CreateUnitDto, UpdateUnitDto } from '../business/dto/unit.dto';
 import {
   CreateProductDto,
   UpdateProductDto,
@@ -35,7 +39,7 @@ import {
 
 @ApiTags('Products')
 @Controller('products')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @ApiBearerAuth()
 export class ProductController {
   constructor(private productService: ProductService) {}
@@ -73,6 +77,42 @@ export class ProductController {
   @ApiResponse({ status: 200 })
   async getCategoryHierarchy(@Business() businessId: string) {
     return this.productService.getCategoryHierarchy(businessId);
+  }
+
+  @Get('units')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('products.view')
+  @ApiOperation({ summary: 'Get active standard and business-specific product units' })
+  async getUnits(@Business() businessId: string) {
+    return this.productService.getUnits(businessId);
+  }
+
+  @Post('units')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('products.create')
+  @ApiOperation({ summary: 'Create a unit owned by the current business' })
+  async createUnit(@Business() businessId: string, @Body() dto: CreateUnitDto) {
+    return this.productService.createUnit(businessId, dto);
+  }
+
+  @Patch('units/:id')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('products.edit')
+  @ApiOperation({ summary: 'Update a unit owned by the current business' })
+  async updateUnit(
+    @Business() businessId: string,
+    @Param('id') unitId: string,
+    @Body() dto: UpdateUnitDto,
+  ) {
+    return this.productService.updateUnit(businessId, unitId, dto);
+  }
+
+  @Delete('units/:id')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('products.delete')
+  @ApiOperation({ summary: 'Delete an unused unit owned by the current business' })
+  async deleteUnit(@Business() businessId: string, @Param('id') unitId: string) {
+    return this.productService.deleteUnit(businessId, unitId);
   }
 
   @Patch('categories/:id')
@@ -120,8 +160,8 @@ export class ProductController {
   @RequirePermission('products.view')
   @ApiOperation({ summary: 'Get all product brands' })
   @ApiResponse({ status: 200, type: [BrandResponseDto] })
-  async getBrands(): Promise<BrandResponseDto[]> {
-    return this.productService.getBrands();
+  async getBrands(@Business() businessId: string): Promise<BrandResponseDto[]> {
+    return this.productService.getBrands(businessId);
   }
 
   @Patch('brands/:id')
@@ -130,11 +170,12 @@ export class ProductController {
   @ApiOperation({ summary: 'Update product brand' })
   @ApiResponse({ status: 200, type: BrandResponseDto })
   async updateBrand(
+    @Business() businessId: string,
     @Param('id') brandId: string,
     @UserId() userId: string,
     @Body() dto: UpdateBrandDto,
   ): Promise<BrandResponseDto> {
-    return this.productService.updateBrand(brandId, userId, dto);
+    return this.productService.updateBrand(businessId, brandId, userId, dto);
   }
 
   @Delete('brands/:id')
@@ -142,8 +183,8 @@ export class ProductController {
   @RequirePermission('products.delete')
   @ApiOperation({ summary: 'Delete product brand' })
   @ApiResponse({ status: 200 })
-  async deleteBrand(@Param('id') brandId: string) {
-    return this.productService.deleteBrand(brandId);
+  async deleteBrand(@Business() businessId: string, @Param('id') brandId: string) {
+    return this.productService.deleteBrand(businessId, brandId);
   }
 
   // ============================================================
@@ -218,6 +259,32 @@ export class ProductController {
     return this.productService.getProductById(businessId, productId);
   }
 
+  @Get(':id/images/:imageId')
+  @RequirePermission('products.view')
+  @ApiOperation({ summary: 'Get a product image within the authenticated business' })
+  async getProductImage(
+    @Business() businessId: string,
+    @Param('id') productId: string,
+    @Param('imageId') imageId: string,
+    @Res() response: Response,
+  ) {
+    const image = await this.productService.getProductImage(businessId, productId, imageId);
+    response.set({
+      'Content-Type': image.contentType,
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'private, max-age=3600',
+    });
+    return response.send(Buffer.from(image.data));
+  }
+
+  @Get(':id/stock')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('products.view')
+  @ApiOperation({ summary: 'Get business-scoped stock by location for a product' })
+  async getProductStock(@Business() businessId: string, @Param('id') productId: string) {
+    return this.productService.getProductStock(businessId, productId);
+  }
+
   @Get()
   @HttpCode(HttpStatus.OK)
   @RequirePermission('products.view')
@@ -246,7 +313,11 @@ export class ProductController {
   @RequirePermission('products.delete')
   @ApiOperation({ summary: 'Delete product' })
   @ApiResponse({ status: 200 })
-  async deleteProduct(@Business() businessId: string, @Param('id') productId: string) {
-    return this.productService.deleteProduct(businessId, productId);
+  async deleteProduct(
+    @Business() businessId: string,
+    @Param('id') productId: string,
+    @UserId() userId: string,
+  ) {
+    return this.productService.deleteProduct(businessId, productId, userId);
   }
 }

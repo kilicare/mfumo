@@ -673,10 +673,25 @@ export class AnalyticsService {
       return row;
     };
     for (const invoice of invoices) {
-      for (const item of invoice.items) {
+      const lineSubtotal = invoice.items.reduce((sum, item) => sum + Number(item.total || 0), 0);
+      // Invoice-level discounts must be allocated to products so product revenue
+      // reconciles to net invoice sales instead of overstating the sales mix.
+      const invoiceDiscount = Math.min(
+        Math.max(0, Number(invoice.discountAmount || 0)),
+        lineSubtotal,
+      );
+      let discountRemaining = round(invoiceDiscount);
+      for (const [index, item] of invoice.items.entries()) {
         const row = ensureProduct(item.product);
         row.quantity += item.quantity;
-        row.revenue += item.total;
+        const itemTotal = Number(item.total || 0);
+        const discountShare = index === invoice.items.length - 1
+          ? discountRemaining
+          : lineSubtotal > MONEY_EPSILON
+            ? round(invoiceDiscount * (itemTotal / lineSubtotal))
+            : 0;
+        discountRemaining = round(discountRemaining - discountShare);
+        row.revenue += itemTotal - discountShare;
       }
     }
     const returnedProductIds = [

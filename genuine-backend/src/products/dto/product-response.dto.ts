@@ -11,6 +11,7 @@ export class ProductUnitResponseDto {
 export class ProductResponseDto {
   id: string;
   businessId: string;
+  currency: string;
   sku: string;
   name: string;
   description?: string;
@@ -18,6 +19,8 @@ export class ProductResponseDto {
   categoryName: string;
   brandId?: string;
   brandName?: string;
+  supplierId?: string;
+  supplierName?: string;
   buyingPrice: number;
   sellingPrice: number;
   wholesalePrice?: number;
@@ -25,6 +28,7 @@ export class ProductResponseDto {
   defaultUnitId: string;
   defaultUnit: string;
   productUnits: ProductUnitResponseDto[];
+  images: Array<{ id: string; sortOrder: number; isPrimary: boolean }>;
   minimumStock: number;
   reorderLevel: number;
   status: string;
@@ -55,6 +59,7 @@ export class CategoryResponseDto {
 
 export class BrandResponseDto {
   id: string;
+  businessId: string | null;
   name: string;
   description?: string;
   productCount: number;

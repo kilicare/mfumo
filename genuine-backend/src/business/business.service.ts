@@ -737,17 +737,21 @@ export class BusinessService {
     }));
   }
 
-  async getUnits(): Promise<UnitResponseDto[]> {
+  async getUnits(businessId: string): Promise<UnitResponseDto[]> {
     const units = await this.prisma.unit.findMany({
-      where: { isActive: true },
+      where: { isActive: true, OR: [{ businessId: null }, { businessId }] },
       orderBy: { createdAt: 'asc' },
     });
 
     return units.map((u) => ({
       id: u.id,
+      businessId: u.businessId,
       name: u.name,
       symbol: u.symbol,
       description: u.description,
+      baseUnit: u.baseUnit,
+      conversionFactor: u.conversionFactor,
+      isSystem: u.isSystem || u.businessId === null,
       isActive: u.isActive,
     }));
   }
@@ -765,7 +769,9 @@ export class BusinessService {
       this.prisma.location.count({ where: { businessId, isActive: true } }),
       this.prisma.paymentMethod.count({ where: { businessId, isActive: true } }),
       this.prisma.expenseCategory.count({ where: { businessId, isActive: true } }),
-      this.prisma.unit.count({ where: { isActive: true } }),
+      this.prisma.unit.count({
+        where: { isActive: true, OR: [{ businessId: null }, { businessId }] },
+      }),
     ]);
 
     return {

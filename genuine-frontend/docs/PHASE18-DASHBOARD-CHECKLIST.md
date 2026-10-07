@@ -57,6 +57,8 @@ Tutathibitisha hatua moja baada ya nyingine. Kila kipimo kikifaulu, weka `GREEN`
 - [ ] Account menu inaonyesha initials ikiwa user hana picha.
 - [ ] Chagua JPG/PNG/WebP; UI ina-compress kuwa WebP ndogo kabla ya kutuma.
 - [ ] Upload picha halali; header avatar ibadilike, `/auth/me` irudishe avatar flag/path, na reload ibaki nayo.
+- [ ] Logout kisha login tena; login response irudishe avatar path/flag ili picha ileile ibaki.
+- [ ] Fungua **View profile photo**; picha iliyopo ionekane kwenye preview inayoweza kufungwa kwa kitufe au Escape.
 - [ ] Picha ipatikane kupitia authenticated `GET /auth/profile/avatar`; bila token irudi `401`.
 - [ ] Jaribu file isiyo image, MIME spoof, WebP signature batili, file kaubwa zaidi ya 64 KB baada ya compression na picha isiyosomeka; ikataliwe bila kubadilisha picha iliyopo.
 - [ ] Jaribu request body iliyovurugika, avatar field isiyo string na fields za ziada; validation ikatae.
@@ -94,3 +96,12 @@ Tutathibitisha hatua moja baada ya nyingine. Kila kipimo kikifaulu, weka `GREEN`
 - [x] Backend health imerudi `200`; frontend `/login` imerudi `200` baada ya server kuwashwa tena.
 - [ ] Browser/manual checks za dashboard, profile upload, responsive breakpoints na toast zimepita; rekodi ushahidi hapa.
 - [ ] Hakuna console errors, API failures zisizoelezwa, horizontal overflow au placeholder inayojifanya feature iliyokamilika.
+
+## Alama ya kusimamisha Round 1
+
+- [x] Login tena baada ya logout; avatar imerudi bila hard refresh.
+- [x] Upload isiyo picha, MIME spoof, WebP signature batili, picha kubwa kuliko 64 KB baada ya compression, na picha isiyosomeka zimekataliwa; avatar ya awali imebaki.
+- [x] Replace picha, refresh, remove picha na refresh; picha mpya/initials vimeendelea kama ilivyotarajiwa.
+- [x] Toast za mafanikio na kosa, dismiss, auto-dismiss na mobile view zimethibitishwa na mtumiaji.
+- [ ] Ukaguzi wa `localStorage` kwa kutohifadhi ujumbe wa toast haujakamilishwa; utaendelea kwenye Round 2 ya mfumo mzima.
+- [ ] Security/isolation, audit, failure injection na ukaguzi wa mwisho wa Phase 18 bado zinasubiri Round 2; usihesabu Phase 18 imefungwa.

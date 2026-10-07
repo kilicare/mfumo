@@ -149,7 +149,7 @@ export default function DashboardPage() {
   if (isLoading && !executive) return <DashboardSkeleton />;
 
   return (
-    <div className="space-y-6 sm:space-y-8">
+    <div className="min-w-0 space-y-6 sm:space-y-8">
       <section className="flex flex-col gap-5 rounded-2xl border border-[#e6e8e1] bg-white p-5 shadow-sm shadow-black/[0.02] sm:flex-row sm:items-end sm:justify-between sm:p-7">
         <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.15em] text-[#527000]">Executive overview</p><h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-[#20231f] sm:text-3xl">Business at a glance</h1><p className="mt-2 text-sm font-medium text-[#626b51]">{user?.businessName || 'Your business'} · {dateRangeLabel(filter)}</p></div>
         <div className="flex flex-wrap items-center gap-2.5">
@@ -173,19 +173,19 @@ export default function DashboardPage() {
           <p className="mt-3 text-[11px] leading-5 text-[#8a8d85]">Revenue, expenses and profit use the selected period. Inventory value is a current snapshot as of {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(executive.inventoryAsOf))}; it is not a historical comparison.</p>
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
+        <section className="grid min-w-0 gap-5 xl:grid-cols-[1.4fr_1fr]">
           <RevenueExpenseChart data={executive} currency={executive.currency} />
           <SalesTrendChart data={executive} currency={executive.currency} />
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-2">
+        <section className="grid min-w-0 gap-5 xl:grid-cols-2">
           <ExpenseBreakdown rows={expenseRows} currency={executive.currency} unavailable={expenseUnavailable} />
           <CashFlowPanel data={executive} currency={executive.currency} />
           <TopProducts data={executive} currency={executive.currency} />
           <InventoryAlerts rows={lowStockRows} total={lowStockTotal} canView={canViewInventory} unavailable={inventoryUnavailable} />
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-2">
+        <section className="grid min-w-0 gap-5 xl:grid-cols-2">
           <RecentActivity transactions={transactions} unavailableSources={unavailableActivitySources} currency={executive.currency} />
           <section className="rounded-2xl border border-[#e8e9e5] bg-[#f0f4ef] p-5 sm:p-6" aria-label="Dashboard data definitions">
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#527000]">How to read these figures</p>
