@@ -36,7 +36,7 @@ async function report() {
   });
   const section62Order = await prisma.purchaseOrder.findFirst({
     where: { businessId: BUSINESS_ID, poNumber: SECTION_62_PO },
-    include: { items: { include: { product: { select: { id: true, sku: true, name: true, stocks: { select: { locationId: true, quantity: true } } } } } }, grns: true },
+    include: { items: { include: { product: { select: { id: true, sku: true, name: true, stocks: { select: { locationId: true, quantity: true } } } } } }, grns: { include: { items: true } } },
   });
   const product = await prisma.product.findFirst({ where: { businessId: BUSINESS_ID, sku: SKU }, select: { id: true, sku: true, name: true, stocks: { select: { locationId: true, quantity: true } } } });
   const movements = product ? await prisma.inventoryMovement.findMany({ where: { businessId: BUSINESS_ID, productId: product.id, referenceType: 'GoodsReceivedNote' }, select: { id: true, type: true, quantity: true, referenceId: true } }) : [];
@@ -55,7 +55,7 @@ async function report() {
       poNumber: section62Order.poNumber,
       status: section62Order.status,
       items: section62Order.items.map((item) => ({ sku: item.product.sku, name: item.product.name, ordered: item.quantity, stocks: item.product.stocks })),
-      grns: section62Order.grns.map((grn) => ({ grnNumber: grn.grnNumber, status: grn.status })),
+      grns: section62Order.grns.map((grn) => ({ grnNumber: grn.grnNumber, status: grn.status, items: grn.items.map((item) => ({ purchaseOrderItemId: item.purchaseOrderItemId, received: item.receivedQuantity, accepted: item.acceptedQuantity, rejected: item.rejectedQuantity, damaged: item.damageQuantity })) })),
     } : null,
   }, null, 2));
 }
