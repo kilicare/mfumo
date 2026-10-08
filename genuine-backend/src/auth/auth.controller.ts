@@ -65,7 +65,7 @@ export class AuthController {
   @ApiResponse({ status: 200 })
   async refreshToken(
     @Body() dto: RefreshTokenDto,
-  ): Promise<{ accessToken: string; expiresIn: number }> {
+  ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
     const payload = this.jwtService.decode(dto.refreshToken) as any;
     const userId = payload?.sub;
     if (!userId) {

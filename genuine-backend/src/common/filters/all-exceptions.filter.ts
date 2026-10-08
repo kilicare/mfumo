@@ -30,25 +30,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const errorResponse = {
         statusCode: status,
         timestamp: new Date().toISOString(),
-        path: request.url,
+        path: request.path,
         method: request.method,
         message,
         ...(typeof exceptionResponse === 'object' && exceptionResponse),
       };
 
-      this.logger.error(
-        `${request.method} ${request.url} ${status}`,
-        JSON.stringify(errorResponse),
-      );
+      this.logger.error(`${request.method} ${request.path} ${status}`);
       return response.status(status).json(errorResponse);
     }
 
     const status = HttpStatus.INTERNAL_SERVER_ERROR;
-    if (exception instanceof Error) {
-      this.logger.error(`Unhandled Exception: ${exception.message}`, exception.stack);
-    } else {
-      this.logger.error(`Unknown Exception: ${JSON.stringify(exception)}`);
-    }
+    // Do not log exception messages/stacks: database drivers may embed SQL,
+    // customer data, credentials, or request values in them.
+    this.logger.error(`Unhandled exception for ${request.method} ${request.path}`);
 
     const errorResponse = {
       statusCode: status,

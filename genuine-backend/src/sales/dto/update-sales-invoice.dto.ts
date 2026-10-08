@@ -10,9 +10,23 @@ import {
   Max,
   Min,
   ValidateNested,
+  Validate,
+  ValidationArguments,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SalesInvoiceItemDto } from './create-sales-invoice.dto';
+
+@ValidatorConstraint({ name: 'exclusiveSalesTaxInputs', async: false })
+class ExclusiveSalesTaxInputsConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    return (args.object as { taxPercentage?: number }).taxPercentage === undefined;
+  }
+  defaultMessage(): string {
+    return 'Provide either taxAmount or taxPercentage, not both';
+  }
+}
 
 export class UpdateSalesInvoiceDto {
   @IsOptional()
@@ -62,7 +76,15 @@ export class UpdateSalesInvoiceDto {
   @Type(() => Number)
   @IsNumber({ allowNaN: false, allowInfinity: false, maxDecimalPlaces: 2 })
   @Min(0)
+  @Validate(ExclusiveSalesTaxInputsConstraint)
   taxAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false, maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  taxPercentage?: number;
 
   @IsOptional()
   @IsIn(['NET-7', 'NET-14', 'NET-30', 'NET-45', 'NET-60', 'COD', 'PREPAID'])

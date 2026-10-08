@@ -5,6 +5,7 @@ export class SupplierStatementDto {
   openingBalance: number;
   purchases: number;
   payments: number;
+  returns: number;
   closingBalance: number;
   invoices: {
     date: Date;
@@ -21,6 +22,7 @@ export class CustomerStatementDto {
   openingBalance: number;
   sales: number;
   payments: number;
+  returns: number;
   closingBalance: number;
   invoices: {
     date: Date;

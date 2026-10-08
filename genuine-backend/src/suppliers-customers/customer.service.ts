@@ -132,12 +132,10 @@ export class CustomerService {
     }
 
     // Calculate financials
-    const totalSales = await this._calculateCustomerSales(customerId);
-    const totalPaid = await this._calculateCustomerPayments(customerId);
+    const financials = await this._calculateCustomerFinancials(businessId, customerId);
 
     return this._formatCustomerResponse(customer, customer.contacts || [], customer.address, {
-      totalSales,
-      totalPaid,
+      ...financials,
     });
   }
 
@@ -216,13 +214,11 @@ export class CustomerService {
     // Get financials for all customers
     const customersWithFinancials = await Promise.all(
       customers.map(async (customer) => {
-        const totalSales = await this._calculateCustomerSales(customer.id);
-        const totalPaid = await this._calculateCustomerPayments(customer.id);
+        const financials = await this._calculateCustomerFinancials(businessId, customer.id);
 
         return {
           customer,
-          totalSales,
-          totalPaid,
+          ...financials,
         };
       }),
     );
@@ -236,6 +232,7 @@ export class CustomerService {
         {
           totalSales: item.totalSales,
           totalPaid: item.totalPaid,
+          totalReturned: item.totalReturned,
         },
       ),
     );
@@ -416,84 +413,112 @@ export class CustomerService {
     businessId: string,
     customerId: string,
     month?: string,
+    dateFrom?: string,
+    dateTo?: string,
   ): Promise<CustomerStatementDto> {
-    this.logger.log(`[CUSTOMERS] Getting statement for customer: ${customerId}`);
-
     const customer = await this.prisma.customer.findFirst({
       where: {
         id: customerId,
         businessId,
       },
     });
-
     if (!customer) {
       throw new NotFoundException('Customer not found');
     }
-
-    const period = month || new Date().toISOString().slice(0, 7);
-
-    // Get opening balance
-    const openingBalance = customer.openingBalance || 0;
-
-    // Get all transactions for the period
-    const startDate = new Date(`${period}-01`);
-    const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
-
-    // Get sales invoices
-    const salesInvoices = await this.prisma.salesInvoice.findMany({
-      where: {
-        customerId,
-        createdAt: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
-    });
-
-    const sales = salesInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
-
-    // Get payments
-    const payments = await this.prisma.payment.findMany({
-      where: {
-        customerId,
-        createdAt: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
-    });
-
-    const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0);
-
-    // Build invoice list
-    const invoices: {
-      date: Date;
-      invoiceNumber: string;
-      amount: number;
-      type: 'SALE' | 'PAYMENT' | 'RETURN';
-    }[] = [];
-
-    salesInvoices.forEach((inv) => {
-      invoices.push({
-        date: inv.createdAt,
-        invoiceNumber: inv.invoiceNumber || inv.id,
-        amount: inv.totalAmount,
-        type: 'SALE',
-      });
-    });
-
-    payments.forEach((p) => {
-      invoices.push({
-        date: p.createdAt,
-        invoiceNumber: (p as any).paymentNumber || p.id,
-        amount: p.amount,
-        type: 'PAYMENT',
-      });
-    });
-
-    // Sort by date
-    invoices.sort((a, b) => a.date.getTime() - b.date.getTime());
-
+    if ((dateFrom && !dateTo) || (!dateFrom && dateTo))
+      throw new BadRequestException('Provide both dateFrom and dateTo');
+    if ((month && (dateFrom || dateTo)) || (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)))
+      throw new BadRequestException('Provide a valid month or a dateFrom/dateTo range');
+    const startDate = dateFrom
+      ? this.statementDate(dateFrom, false)
+      : month
+        ? new Date(`${month}-01T00:00:00.000Z`)
+        : new Date(`${new Date().toISOString().slice(0, 7)}-01T00:00:00.000Z`);
+    const endDate = dateTo
+      ? this.statementDate(dateTo, true)
+      : new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth() + 1, 1));
+    if (startDate >= endDate) throw new BadRequestException('dateFrom must be on or before dateTo');
+    const invoiceFilter = {
+      businessId,
+      customerId,
+      status: { in: ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE'] },
+    };
+    const returnFilter = {
+      businessId,
+      status: { in: ['RECEIVED', 'COMPLETED'] },
+      invoice: { businessId, customerId },
+    };
+    const paymentFilter = {
+      businessId,
+      customerId,
+      status: { in: ['RECORDED', 'VERIFIED', 'RECONCILED', 'COMPLETED'] },
+    };
+    const [periodSales, priorSales, periodPayments, priorPayments, periodReturns, priorReturns] =
+      await Promise.all([
+        this.prisma.salesInvoice.findMany({
+          where: { ...invoiceFilter, issuedDate: { gte: startDate, lt: endDate } },
+          select: { invoiceNumber: true, totalAmount: true, issuedDate: true },
+        }),
+        this.prisma.salesInvoice.aggregate({
+          where: { ...invoiceFilter, issuedDate: { lt: startDate } },
+          _sum: { totalAmount: true },
+        }),
+        this.prisma.payment.findMany({
+          where: { ...paymentFilter, paymentDate: { gte: startDate, lt: endDate } },
+          select: { paymentNumber: true, amount: true, paymentDate: true },
+        }),
+        this.prisma.payment.aggregate({
+          where: { ...paymentFilter, paymentDate: { lt: startDate } },
+          _sum: { amount: true },
+        }),
+        this.prisma.salesReturn.findMany({
+          where: { ...returnFilter, returnDate: { gte: startDate, lt: endDate } },
+          select: { returnNumber: true, totalAmount: true, returnDate: true },
+        }),
+        this.prisma.salesReturn.aggregate({
+          where: { ...returnFilter, returnDate: { lt: startDate } },
+          _sum: { totalAmount: true },
+        }),
+      ]);
+    const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+    const sales = roundMoney(periodSales.reduce((sum, row) => sum + row.totalAmount, 0));
+    const totalPayments = roundMoney(periodPayments.reduce((sum, row) => sum + row.amount, 0));
+    const returns = roundMoney(periodReturns.reduce((sum, row) => sum + row.totalAmount, 0));
+    const openingBalance = roundMoney(
+      (customer.openingBalance || 0) +
+        (priorSales._sum.totalAmount || 0) -
+        (priorPayments._sum.amount || 0) -
+        (priorReturns._sum.totalAmount || 0),
+    );
+    const entries: CustomerStatementDto['invoices'] = [
+      ...periodSales
+        .filter((row) => row.issuedDate)
+        .map((row) => ({
+          date: row.issuedDate!,
+          invoiceNumber: row.invoiceNumber,
+          amount: row.totalAmount,
+          type: 'SALE' as const,
+        })),
+      ...periodPayments.map((row) => ({
+        date: row.paymentDate,
+        invoiceNumber: row.paymentNumber,
+        amount: row.amount,
+        type: 'PAYMENT' as const,
+      })),
+      ...periodReturns.map((row) => ({
+        date: row.returnDate,
+        invoiceNumber: row.returnNumber,
+        amount: row.totalAmount,
+        type: 'RETURN' as const,
+      })),
+    ].sort(
+      (a, b) =>
+        a.date.getTime() - b.date.getTime() || a.invoiceNumber.localeCompare(b.invoiceNumber),
+    );
+    const period =
+      dateFrom && dateTo
+        ? `${dateFrom} to ${dateTo}`
+        : month || startDate.toISOString().slice(0, 7);
     return {
       customerId,
       customerName: customer.name,
@@ -501,14 +526,25 @@ export class CustomerService {
       openingBalance,
       sales,
       payments: totalPayments,
-      closingBalance: openingBalance + sales - totalPayments,
-      invoices,
+      returns,
+      closingBalance: roundMoney(openingBalance + sales - totalPayments - returns),
+      invoices: entries,
     };
   }
 
   // ============================================================
   // PRIVATE HELPERS
   // ============================================================
+
+  private statementDate(value: string, exclusiveEnd: boolean): Date {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
+      throw new BadRequestException('Dates must use YYYY-MM-DD');
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value)
+      throw new BadRequestException('Invalid calendar date');
+    if (exclusiveEnd) date.setUTCDate(date.getUTCDate() + 1);
+    return date;
+  }
 
   /**
    * Generate customer code
@@ -524,29 +560,38 @@ export class CustomerService {
   /**
    * Calculate total sales to customer
    */
-  private async _calculateCustomerSales(customerId: string): Promise<number> {
-    const result = await this.prisma.salesInvoice.aggregate({
-      where: { customerId },
-      _sum: {
-        totalAmount: true,
-      },
-    });
-
-    return result._sum.totalAmount || 0;
-  }
-
-  /**
-   * Calculate total payments from customer
-   */
-  private async _calculateCustomerPayments(customerId: string): Promise<number> {
-    const result = await this.prisma.payment.aggregate({
-      where: { customerId },
-      _sum: {
-        amount: true,
-      },
-    });
-
-    return result._sum.amount || 0;
+  private async _calculateCustomerFinancials(businessId: string, customerId: string) {
+    const [sales, payments, returns] = await Promise.all([
+      this.prisma.salesInvoice.aggregate({
+        where: {
+          businessId,
+          customerId,
+          status: { in: ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE'] },
+        },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: {
+          businessId,
+          customerId,
+          status: { in: ['RECORDED', 'VERIFIED', 'RECONCILED', 'COMPLETED'] },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.salesReturn.aggregate({
+        where: {
+          businessId,
+          status: { in: ['RECEIVED', 'COMPLETED'] },
+          OR: [{ customerId }, { customerId: null, invoice: { customerId } }],
+        },
+        _sum: { totalAmount: true },
+      }),
+    ]);
+    return {
+      totalSales: sales._sum.totalAmount || 0,
+      totalPaid: payments._sum.amount || 0,
+      totalReturned: returns._sum.totalAmount || 0,
+    };
   }
 
   /**
@@ -556,13 +601,14 @@ export class CustomerService {
     customer: any,
     contacts: any[],
     address: any,
-    financials?: { totalSales: number; totalPaid: number },
+    financials?: { totalSales: number; totalPaid: number; totalReturned: number },
   ): CustomerResponseDto {
     const totalSales = financials?.totalSales || 0;
     const totalPaid = financials?.totalPaid || 0;
+    const totalReturned = financials?.totalReturned || 0;
     const openingBalance = customer.openingBalance || 0;
     const creditLimit = customer.creditLimit || 0;
-    const outstandingBalance = openingBalance + totalSales - totalPaid;
+    const outstandingBalance = openingBalance + totalSales - totalPaid - totalReturned;
     const creditUtilization = creditLimit > 0 ? (outstandingBalance / creditLimit) * 100 : 0;
 
     return {
@@ -600,6 +646,7 @@ export class CustomerService {
       openingBalance,
       totalSales,
       totalPaid,
+      totalReturned,
       outstandingBalance,
       creditUtilization: Math.round(creditUtilization * 100) / 100,
       isActive: customer.isActive,

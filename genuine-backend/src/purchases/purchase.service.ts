@@ -11,6 +11,7 @@ import { PrismaService } from '../database/prisma.service';
 import { LoggerService } from '../common/logger/logger.service';
 import { assertAccountingPeriodOpen } from '../common/utils/accounting-period.util';
 import { NotificationsService } from '../notifications/notifications.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { NotificationEventType } from '../notifications/dto';
 import {
   CreatePurchaseOrderDto,
@@ -27,6 +28,19 @@ import {
 } from './dto';
 
 const roundMoney = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
+const requestFingerprint = (value: unknown): string =>
+  createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const decimalPlaces = (value: number): number => {
+  const [coefficient, exponent = '0'] = value.toString().toLowerCase().split('e');
+  return Math.max(0, (coefficient.split('.')[1]?.length ?? 0) - Number(exponent));
+};
+const calendarDateKey = (value: Date | string): string | null => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const key = date.toISOString().slice(0, 10);
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && key !== value) return null;
+  return key;
+};
 
 @Injectable()
 export class PurchaseService {
@@ -34,6 +48,7 @@ export class PurchaseService {
     private prisma: PrismaService,
     private logger: LoggerService,
     private readonly notifications: NotificationsService,
+    private readonly inventory: InventoryService,
   ) {}
 
   // ============================================================
@@ -58,7 +73,9 @@ export class PurchaseService {
       });
       if (prior) {
         if (prior.requestFingerprint !== requestFingerprint) {
-          throw new ConflictException('Idempotency key was already used for a different purchase order request');
+          throw new ConflictException(
+            'Idempotency key was already used for a different purchase order request',
+          );
         }
         return this.getPurchaseOrderById(businessId, prior.id);
       }
@@ -68,9 +85,12 @@ export class PurchaseService {
     }
     if (dto.expectedDeliveryDate) {
       const orderDate = dto.orderDate ?? new Date();
-      const calendarDay = (date: Date) => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+      const calendarDay = (date: Date) =>
+        Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
       if (calendarDay(dto.expectedDeliveryDate) < calendarDay(orderDate)) {
-        throw new BadRequestException('Expected delivery date cannot be earlier than the order date');
+        throw new BadRequestException(
+          'Expected delivery date cannot be earlier than the order date',
+        );
       }
     }
     this.logger.log(`[PURCHASES] Creating purchase order for supplier: ${dto.supplierId}`);
@@ -183,6 +203,7 @@ export class PurchaseService {
             subtotal,
             shippingCost,
             taxAmount,
+            taxRecoverable: dto.taxRecoverable ?? true,
             totalAmount,
             notes: dto.notes,
             referenceNumber: dto.referenceNumber,
@@ -206,7 +227,9 @@ export class PurchaseService {
           });
           if (prior) {
             if (prior.requestFingerprint !== requestFingerprint) {
-              throw new ConflictException('Idempotency key was already used for a different purchase order request');
+              throw new ConflictException(
+                'Idempotency key was already used for a different purchase order request',
+              );
             }
             return this.getPurchaseOrderById(businessId, prior.id);
           }
@@ -258,15 +281,17 @@ export class PurchaseService {
       throw new NotFoundException('Purchase order not found');
     }
 
-    // Get GRN totals
-    const grnItems = await this.prisma.gRNItem.findMany({
-      where: {
-        grn: {
-          purchaseOrderId: poId,
-          status: 'ACCEPTED',
-        },
-      },
-    });
+    // Accepted GRNs count toward stock/received totals. Pending RECEIVED GRNs
+    // also reserve their accepted quantities so the next receipt form cannot
+    // offer units already reserved by a pending quality check.
+    const [grnItems, reservedGrnItems] = await Promise.all([
+      this.prisma.gRNItem.findMany({
+        where: { grn: { purchaseOrderId: poId, status: 'ACCEPTED' } },
+      }),
+      this.prisma.gRNItem.findMany({
+        where: { grn: { purchaseOrderId: poId, status: { not: 'REJECTED' } } },
+      }),
+    ]);
 
     const grnsMap = new Map<string, { received: number; accepted: number; rejected: number }>();
     grnItems.forEach((item) => {
@@ -281,6 +306,14 @@ export class PurchaseService {
       current.received += item.receivedQuantity;
       current.accepted += item.acceptedQuantity;
       current.rejected += item.rejectedQuantity;
+    });
+
+    const reservedAcceptedByItem = new Map<string, number>();
+    reservedGrnItems.forEach((item) => {
+      reservedAcceptedByItem.set(
+        item.purchaseOrderItemId,
+        (reservedAcceptedByItem.get(item.purchaseOrderItemId) || 0) + item.acceptedQuantity,
+      );
     });
 
     // Get Return items totals
@@ -300,15 +333,22 @@ export class PurchaseService {
     });
 
     // Get payment totals
-    const payments = await this.prisma.payment.findMany({
-      where: {
-        poId: poId,
-        businessId,
-        status: { not: 'VOIDED' },
-      },
-    });
+    const [payments, approvedReturns] = await Promise.all([
+      this.prisma.payment.findMany({
+        where: {
+          businessId,
+          poId: poId,
+          status: { in: ['RECORDED', 'VERIFIED', 'RECONCILED', 'COMPLETED'] },
+        },
+      }),
+      this.prisma.purchaseReturn.aggregate({
+        where: { businessId, purchaseOrderId: poId, status: 'APPROVED' },
+        _sum: { totalReturnAmount: true },
+      }),
+    ]);
 
     const totalPaid = roundMoney(payments.reduce((sum, p) => sum + p.amount, 0));
+    const totalReturned = roundMoney(approvedReturns._sum.totalReturnAmount || 0);
 
     return {
       id: po.id,
@@ -337,19 +377,21 @@ export class PurchaseService {
           grnReceivedQty: grnData.received,
           grnAcceptedQty: grnData.accepted,
           returnedQty,
-          // A supplier return does not undo what was originally received for
-          // fulfilment purposes. Keep returned quantity visible separately.
-          outstandingQty: Math.max(0, item.quantity - grnData.accepted),
+          // Pending receipts reserve their accepted quantity. Returns do not
+          // reopen a purchase order line for receiving.
+          outstandingQty: Math.max(0, item.quantity - (reservedAcceptedByItem.get(item.id) || 0)),
           notes: item.notes,
         };
       }),
       subtotal: po.subtotal,
       shippingCost: po.shippingCost,
       taxAmount: po.taxAmount,
+      taxRecoverable: po.taxRecoverable,
       totalAmount: po.totalAmount,
       totalReceived: grnItems.reduce((sum, item) => sum + item.acceptedQuantity, 0),
       totalPaid,
-      balanceDue: roundMoney(po.totalAmount - totalPaid),
+      totalReturned,
+      balanceDue: roundMoney(Math.max(0, po.totalAmount - totalPaid - totalReturned)),
       orderDate: po.orderDate,
       expectedDeliveryDate: po.expectedDeliveryDate,
       approvedBy: po.approvedBy,
@@ -369,20 +411,79 @@ export class PurchaseService {
     userId: string,
     dto: CreatePurchasePaymentDto,
   ): Promise<PurchasePaymentResponseDto> {
+    const amount = roundMoney(Number(dto.amount));
+    if (!Number.isFinite(amount) || amount <= 0 || decimalPlaces(Number(dto.amount)) > 2) {
+      throw new BadRequestException(
+        'Payment amount must be a positive number with at most 2 decimals',
+      );
+    }
+    const idempotencyHash = dto.idempotencyKey?.trim()
+      ? createHash('sha256').update(`purchase-payment:${dto.idempotencyKey.trim()}`).digest('hex')
+      : undefined;
+    const fingerprint = idempotencyHash
+      ? requestFingerprint({
+          poId,
+          amount,
+          paymentMethodId: dto.paymentMethodId,
+          paymentDate: dto.paymentDate?.toISOString() || null,
+          reference: dto.reference?.trim() || null,
+          notes: dto.notes?.trim() || null,
+          paymentNumber: dto.paymentNumber?.trim() || null,
+        })
+      : undefined;
+    const toResponse = (row: any): PurchasePaymentResponseDto => ({
+      id: row.id,
+      businessId: row.businessId,
+      paymentNumber: row.paymentNumber,
+      paymentDate: row.paymentDate,
+      supplierId: row.supplierId,
+      purchaseOrderId: row.poId,
+      amount: row.amount,
+      paymentMethodId: row.paymentMethodId,
+      reference: row.reference,
+      notes: row.notes,
+      status: row.status,
+      createdAt: row.createdAt,
+    });
+    if (idempotencyHash) {
+      const existing = await this.prisma.payment.findFirst({
+        where: { businessId, idempotencyKey: idempotencyHash },
+      });
+      if (existing) {
+        if (existing.requestFingerprint !== fingerprint) {
+          throw new ConflictException('Idempotency key was already used for a different payment');
+        }
+        return toResponse(existing);
+      }
+    }
     const paymentNumber =
       dto.paymentNumber ||
       `PAY-${new Date().toISOString().slice(0, 7).replace('-', '')}-${uuid().slice(0, 8).toUpperCase()}`;
     const duplicate = await this.prisma.payment.findFirst({
-      where: { paymentNumber },
+      where: { businessId, paymentNumber },
       select: { id: true },
     });
     if (duplicate) throw new ConflictException(`Payment number ${paymentNumber} already exists`);
 
     let payment;
+    let created = false;
     try {
       payment = await this.prisma.$transaction(
         async (tx) => {
           await tx.$queryRaw`SELECT "id" FROM "PurchaseOrder" WHERE "id" = ${poId} AND "businessId" = ${businessId} FOR UPDATE`;
+          if (idempotencyHash) {
+            const existing = await tx.payment.findFirst({
+              where: { businessId, idempotencyKey: idempotencyHash },
+            });
+            if (existing) {
+              if (existing.requestFingerprint !== fingerprint) {
+                throw new ConflictException(
+                  'Idempotency key was already used for a different payment',
+                );
+              }
+              return existing;
+            }
+          }
           const po = await tx.purchaseOrder.findFirst({ where: { id: poId, businessId } });
           if (!po) throw new NotFoundException('Purchase order not found');
           await assertAccountingPeriodOpen(tx, businessId, dto.paymentDate || new Date());
@@ -398,19 +499,35 @@ export class PurchaseService {
           if (!paymentMethod) throw new BadRequestException('Active payment method not found');
 
           const prior = await tx.payment.aggregate({
-            where: { businessId, poId, status: { not: 'VOIDED' } },
+            where: {
+              businessId,
+              poId,
+              status: { in: ['RECORDED', 'VERIFIED', 'RECONCILED', 'COMPLETED'] },
+            },
             _sum: { amount: true },
           });
           const totalPaid = prior._sum.amount || 0;
-          const amount = Math.round((Number(dto.amount) + Number.EPSILON) * 100) / 100;
-          const balanceDue = Math.round((po.totalAmount - totalPaid + Number.EPSILON) * 100) / 100;
+          const approvedReturns = await tx.purchaseReturn.aggregate({
+            where: { businessId, purchaseOrderId: poId, status: 'APPROVED' },
+            _sum: { totalReturnAmount: true },
+          });
+          const balanceDue = Math.max(
+            0,
+            Math.round(
+              (po.totalAmount -
+                totalPaid -
+                (approvedReturns._sum.totalReturnAmount || 0) +
+                Number.EPSILON) *
+                100,
+            ) / 100,
+          );
           if (amount > balanceDue) {
             throw new BadRequestException(
               `Payment exceeds the purchase order balance of ${balanceDue}`,
             );
           }
 
-          return tx.payment.create({
+          const createdPayment = await tx.payment.create({
             data: {
               id: uuid(),
               businessId,
@@ -422,18 +539,35 @@ export class PurchaseService {
               paymentMethodId: paymentMethod.id,
               reference: dto.reference,
               notes: dto.notes,
+              idempotencyKey: idempotencyHash,
+              requestFingerprint: fingerprint,
               status: 'RECORDED',
               createdBy: userId,
             },
           });
+          created = true;
+          return createdPayment;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
+          if (idempotencyHash) {
+            const replay = await this.prisma.payment.findFirst({
+              where: { businessId, idempotencyKey: idempotencyHash },
+            });
+            if (replay) {
+              if (replay.requestFingerprint !== fingerprint) {
+                throw new ConflictException(
+                  'Idempotency key was already used for a different payment',
+                );
+              }
+              return toResponse(replay);
+            }
+          }
           const existing = await this.prisma.payment.findFirst({
-            where: { paymentNumber },
+            where: { businessId, paymentNumber },
             select: { id: true },
           });
           if (existing)
@@ -446,26 +580,15 @@ export class PurchaseService {
       throw error;
     }
 
+    if (!created) return toResponse(payment);
+
     await this._createAuditLog(businessId, userId, 'Payment', payment.id, 'CREATE', {
       action: 'Purchase order payment recorded',
       paymentNumber,
       poId,
       amount: payment.amount,
     });
-    return {
-      id: payment.id,
-      businessId: payment.businessId,
-      paymentNumber: payment.paymentNumber,
-      paymentDate: payment.paymentDate,
-      supplierId: payment.supplierId,
-      purchaseOrderId: payment.poId,
-      amount: payment.amount,
-      paymentMethodId: payment.paymentMethodId,
-      reference: payment.reference,
-      notes: payment.notes,
-      status: payment.status,
-      createdAt: payment.createdAt,
-    };
+    return toResponse(payment);
   }
 
   /**
@@ -584,19 +707,27 @@ export class PurchaseService {
     const locationId = dto.locationId ?? po.locationId;
     if (
       dto.supplierId &&
-      !(await this.prisma.supplier.findFirst({ where: { id: supplierId, businessId, isActive: true } }))
+      !(await this.prisma.supplier.findFirst({
+        where: { id: supplierId, businessId, isActive: true },
+      }))
     ) {
       throw new NotFoundException('Supplier not found or inactive');
     }
     if (
       dto.locationId &&
-      !(await this.prisma.location.findFirst({ where: { id: locationId, businessId, isActive: true } }))
+      !(await this.prisma.location.findFirst({
+        where: { id: locationId, businessId, isActive: true },
+      }))
     ) {
       throw new NotFoundException('Location not found or inactive');
     }
     if (dto.items) {
       const products = await this.prisma.product.findMany({
-        where: { id: { in: dto.items.map((item) => item.productId) }, businessId, status: 'ACTIVE' },
+        where: {
+          id: { in: dto.items.map((item) => item.productId) },
+          businessId,
+          status: 'ACTIVE',
+        },
         select: { id: true },
       });
       const productIds = new Set(products.map((product) => product.id));
@@ -634,6 +765,7 @@ export class PurchaseService {
         : dto.taxPercentage !== undefined
           ? roundMoney((subtotal * Number(dto.taxPercentage)) / 100)
           : po.taxAmount;
+    const taxRecoverable = dto.taxRecoverable ?? po.taxRecoverable;
 
     await this.prisma.$transaction(async (tx) => {
       const updated = await tx.purchaseOrder.updateMany({
@@ -643,6 +775,7 @@ export class PurchaseService {
           locationId,
           shippingCost,
           taxAmount,
+          taxRecoverable,
           totalAmount: roundMoney(subtotal + shippingCost + taxAmount),
           ...(dto.expectedDeliveryDate !== undefined && {
             expectedDeliveryDate: dto.expectedDeliveryDate
@@ -681,6 +814,7 @@ export class PurchaseService {
             subtotal: po.subtotal,
             shippingCost: po.shippingCost,
             taxAmount: po.taxAmount,
+            taxRecoverable: po.taxRecoverable,
             totalAmount: po.totalAmount,
             referenceNumber: po.referenceNumber,
             notes: po.notes,
@@ -830,6 +964,46 @@ export class PurchaseService {
    */
   async createGRN(businessId: string, userId: string, dto: CreateGRNDto): Promise<GRNResponseDto> {
     this.logger.log(`[PURCHASES] Creating GRN for PO: ${dto.purchaseOrderId}`);
+    if (!Array.isArray(dto.items) || dto.items.length === 0) {
+      throw new BadRequestException('At least one GRN item is required');
+    }
+
+    const idempotencyHash = dto.idempotencyKey?.trim()
+      ? createHash('sha256').update(`purchase-grn:${dto.idempotencyKey.trim()}`).digest('hex')
+      : undefined;
+    const fingerprint = idempotencyHash
+      ? requestFingerprint({
+          purchaseOrderId: dto.purchaseOrderId,
+          grnNumber: dto.grnNumber?.trim() || null,
+          receivedDate: dto.receivedDate?.toISOString() || null,
+          items: dto.items.map((item) => ({
+            purchaseOrderItemId: item.purchaseOrderItemId,
+            receivedQuantity: Number(item.receivedQuantity),
+            acceptedQuantity: Number(item.acceptedQuantity),
+            rejectedQuantity: Number(item.rejectedQuantity),
+            damageQuantity: Number(item.damageQuantity),
+            batchNumber: item.batchNumber?.trim() || null,
+            expiryDate: item.expiryDate || null,
+            notes: item.notes?.trim() || null,
+          })),
+          vehicleRegistration: dto.vehicleRegistration?.trim() || null,
+          driverName: dto.driverName?.trim() || null,
+          waybillNumber: dto.waybillNumber?.trim() || null,
+          notes: dto.notes?.trim() || null,
+        })
+      : undefined;
+    if (idempotencyHash) {
+      const existing = await this.prisma.goodsReceivedNote.findFirst({
+        where: { businessId, idempotencyKey: idempotencyHash },
+        select: { id: true, requestFingerprint: true },
+      });
+      if (existing) {
+        if (existing.requestFingerprint !== fingerprint) {
+          throw new ConflictException('Idempotency key was already used for a different GRN');
+        }
+        return this.getGRNById(businessId, existing.id);
+      }
+    }
 
     const po = await this.prisma.purchaseOrder.findFirst({
       where: {
@@ -877,14 +1051,22 @@ export class PurchaseService {
           'Received quantity must equal accepted + rejected + damaged quantities',
         );
       }
-      if (
-        poItem.product.requiresExpiry &&
-        accepted > 0 &&
-        (!item.expiryDate || !item.batchNumber?.trim())
-      ) {
-        throw new BadRequestException(
-          `Batch number and expiry date are required for ${poItem.product.name}`,
-        );
+      if ([received, accepted, rejected, damaged].some((quantity) => decimalPlaces(quantity) > 2)) {
+        throw new BadRequestException('GRN quantities must have no more than 2 decimal places');
+      }
+      if (poItem.product.requiresExpiry && accepted > 0) {
+        if (!item.expiryDate || !item.batchNumber?.trim()) {
+          throw new BadRequestException(
+            `Batch number and expiry date are required for ${poItem.product.name}`,
+          );
+        }
+        const expiryDay = calendarDateKey(item.expiryDate);
+        const receivedDay = calendarDateKey(dto.receivedDate || new Date());
+        if (!expiryDay || !receivedDay || expiryDay <= receivedDay) {
+          throw new BadRequestException(
+            `Expiry date must be after the received date for ${poItem.product.name}`,
+          );
+        }
       }
     }
 
@@ -900,11 +1082,23 @@ export class PurchaseService {
     }
 
     let grn;
+    let createdNew = false;
     try {
       grn = await this.prisma.$transaction(async (tx) => {
         // Serialize receipts for a PO so two concurrent GRNs cannot both
         // reserve the same remaining accepted quantity.
         await tx.$queryRaw`SELECT "id" FROM "PurchaseOrder" WHERE "id" = ${po.id} FOR UPDATE`;
+        if (idempotencyHash) {
+          const replay = await tx.goodsReceivedNote.findFirst({
+            where: { businessId, idempotencyKey: idempotencyHash },
+          });
+          if (replay) {
+            if (replay.requestFingerprint !== fingerprint) {
+              throw new ConflictException('Idempotency key was already used for a different GRN');
+            }
+            return replay;
+          }
+        }
         // The first read/validation above is only an early, user-friendly
         // check. Cancellation may win the row lock while this request waits,
         // so re-read the PO under the lock before creating any receipt data.
@@ -962,6 +1156,8 @@ export class PurchaseService {
             id: uuid(),
             businessId,
             grnNumber,
+            idempotencyKey: idempotencyHash,
+            requestFingerprint: fingerprint,
             purchaseOrderId: dto.purchaseOrderId,
             status: 'RECEIVED',
             receivedDate: dto.receivedDate ? new Date(dto.receivedDate) : new Date(),
@@ -986,6 +1182,7 @@ export class PurchaseService {
             expiryDate: item.expiryDate ? new Date(item.expiryDate) : undefined,
           })),
         });
+        createdNew = true;
         return created;
       });
     } catch (error) {
@@ -993,6 +1190,17 @@ export class PurchaseService {
       // constraint as the final guard if concurrent requests choose the same
       // GRN number between the check and the insert.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        if (idempotencyHash) {
+          const replay = await this.prisma.goodsReceivedNote.findFirst({
+            where: { businessId, idempotencyKey: idempotencyHash },
+          });
+          if (replay) {
+            if (replay.requestFingerprint !== fingerprint) {
+              throw new ConflictException('Idempotency key was already used for a different GRN');
+            }
+            return this.getGRNById(businessId, replay.id);
+          }
+        }
         const duplicate = await this.prisma.goodsReceivedNote.findFirst({
           where: { businessId, grnNumber: grnNumber! },
           select: { id: true },
@@ -1004,13 +1212,15 @@ export class PurchaseService {
       throw error;
     }
 
-    await this._createAuditLog(businessId, userId, 'GoodsReceivedNote', grn.id, 'CREATE', {
-      action: 'GRN created',
-      grnNumber: grn.grnNumber,
-      purchaseOrderId: dto.purchaseOrderId,
-    });
+    if (createdNew) {
+      await this._createAuditLog(businessId, userId, 'GoodsReceivedNote', grn.id, 'CREATE', {
+        action: 'GRN created',
+        grnNumber: grn.grnNumber,
+        purchaseOrderId: dto.purchaseOrderId,
+      });
 
-    this.logger.log(`[PURCHASES] GRN created: ${grn.id} (${grnNumber})`);
+      this.logger.log(`[PURCHASES] GRN created: ${grn.id} (${grnNumber})`);
+    }
 
     return this.getGRNById(businessId, grn.id);
   }
@@ -1134,6 +1344,9 @@ export class PurchaseService {
       await tx.$queryRaw`SELECT "id" FROM "PurchaseOrder" WHERE "id" = ${grn.purchaseOrderId} FOR UPDATE`;
 
       if (dto.items) {
+        if (!dto.items.length) {
+          throw new BadRequestException('A goods received note must contain at least one item');
+        }
         const requestedUpdates = dto.items.map((item, index) => ({
           ...item,
           purchaseOrderItemId: item.purchaseOrderItemId || grn.items[index]?.purchaseOrderItemId,
@@ -1148,19 +1361,21 @@ export class PurchaseService {
             throw new BadRequestException('A PO item can only appear once in a GRN');
           updatesByItem.set(poItemId, item);
         }
-        const updatedItems = grn.items.map((prior) => {
-          const update = updatesByItem.get(prior.purchaseOrderItemId);
-          return {
-            purchaseOrderItemId: prior.purchaseOrderItemId,
-            receivedQuantity: update?.receivedQuantity ?? prior.receivedQuantity,
-            acceptedQuantity: update?.acceptedQuantity ?? prior.acceptedQuantity,
-            rejectedQuantity: update?.rejectedQuantity ?? prior.rejectedQuantity,
-            damageQuantity: update?.damageQuantity ?? prior.damageQuantity,
-            notes: update?.notes ?? prior.notes,
-            batchNumber: update?.batchNumber ?? prior.batchNumber,
-            expiryDate: update?.expiryDate ? new Date(update.expiryDate) : prior.expiryDate,
-          };
-        });
+        const updatedItems = grn.items
+          .filter((prior) => updatesByItem.has(prior.purchaseOrderItemId))
+          .map((prior) => {
+            const update = updatesByItem.get(prior.purchaseOrderItemId);
+            return {
+              purchaseOrderItemId: prior.purchaseOrderItemId,
+              receivedQuantity: update?.receivedQuantity ?? prior.receivedQuantity,
+              acceptedQuantity: update?.acceptedQuantity ?? prior.acceptedQuantity,
+              rejectedQuantity: update?.rejectedQuantity ?? prior.rejectedQuantity,
+              damageQuantity: update?.damageQuantity ?? prior.damageQuantity,
+              notes: update?.notes ?? prior.notes,
+              batchNumber: update?.batchNumber ?? prior.batchNumber,
+              expiryDate: update?.expiryDate ? new Date(update.expiryDate) : prior.expiryDate,
+            };
+          });
         for (const item of requestedUpdates) {
           if (grn.items.some((prior) => prior.purchaseOrderItemId === item.purchaseOrderItemId))
             continue;
@@ -1187,6 +1402,16 @@ export class PurchaseService {
         }
         for (const item of updatedItems) {
           if (
+            [
+              item.receivedQuantity,
+              item.acceptedQuantity,
+              item.rejectedQuantity,
+              item.damageQuantity,
+            ].some((quantity) => decimalPlaces(quantity) > 2)
+          ) {
+            throw new BadRequestException('GRN quantities must have no more than 2 decimal places');
+          }
+          if (
             item.receivedQuantity <= 0 ||
             Math.abs(
               item.receivedQuantity -
@@ -1202,14 +1427,19 @@ export class PurchaseService {
           const poItem = grn.purchaseOrder.items.find(
             (candidate) => candidate.id === item.purchaseOrderItemId,
           )!;
-          if (
-            poItem.product.requiresExpiry &&
-            item.acceptedQuantity > 0 &&
-            (!item.expiryDate || !item.batchNumber?.trim())
-          ) {
-            throw new BadRequestException(
-              `Batch number and expiry date are required for ${poItem.product.name}`,
-            );
+          if (poItem.product.requiresExpiry && item.acceptedQuantity > 0) {
+            if (!item.expiryDate || !item.batchNumber?.trim()) {
+              throw new BadRequestException(
+                `Batch number and expiry date are required for ${poItem.product.name}`,
+              );
+            }
+            const expiryDay = calendarDateKey(item.expiryDate);
+            const receivedDay = calendarDateKey(dto.receivedDate ?? grn.receivedDate);
+            if (!expiryDay || !receivedDay || expiryDay <= receivedDay) {
+              throw new BadRequestException(
+                `Expiry date must be after the received date for ${poItem.product.name}`,
+              );
+            }
           }
         }
         const otherGrns = await tx.goodsReceivedNote.findMany({
@@ -1303,6 +1533,23 @@ export class PurchaseService {
         if (!poItem)
           throw new BadRequestException('GRN contains an item outside its purchase order');
         if (item.acceptedQuantity > 0) {
+          // Capitalize freight and non-recoverable purchase tax into unit cost.
+          // Allocate by each PO line's net amount after discounts (quantity share
+          // is the fallback for zero-value/free lines). Recoverable tax stays out
+          // of inventory value and remains part of the PO amount only.
+          const poItems = grn.purchaseOrder.items;
+          const poSubtotal = poItems.reduce((sum, row) => sum + row.lineTotal, 0);
+          const totalOrderedQty = poItems.reduce((sum, row) => sum + row.quantity, 0);
+          const overhead =
+            grn.purchaseOrder.shippingCost +
+            (grn.purchaseOrder.taxRecoverable ? 0 : grn.purchaseOrder.taxAmount);
+          const allocationWeight =
+            poSubtotal > 0
+              ? poItem.lineTotal / poSubtotal
+              : totalOrderedQty > 0
+                ? poItem.quantity / totalOrderedQty
+                : 0;
+          const landedLineCost = poItem.lineTotal + overhead * allocationWeight;
           await tx.stockBalance.upsert({
             where: {
               productId_locationId: {
@@ -1330,7 +1577,7 @@ export class PurchaseService {
               referenceId: grn.id,
               referenceType: 'GoodsReceivedNote',
               notes: `Received from ${grn.purchaseOrder.supplier.name} (GRN: ${grn.grnNumber})`,
-              unitCost: poItem.quantity > 0 ? poItem.lineTotal / poItem.quantity : poItem.unitPrice,
+              unitCost: poItem.quantity > 0 ? landedLineCost / poItem.quantity : poItem.unitPrice,
               batchNumber: item.batchNumber,
               expiryDate: item.expiryDate,
               createdBy: userId,
@@ -1359,6 +1606,10 @@ export class PurchaseService {
     userId: string,
     reason: string,
   ): Promise<GRNResponseDto> {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) throw new BadRequestException('A rejection reason is required');
+    if (trimmedReason.length > 500)
+      throw new BadRequestException('Rejection reason must be 500 characters or fewer');
     this.logger.log(`[PURCHASES] Rejecting GRN: ${grnId}`);
 
     await this.prisma.$transaction(async (tx) => {
@@ -1370,7 +1621,7 @@ export class PurchaseService {
         where: { id: grnId, businessId, status: 'RECEIVED' },
         data: {
           status: 'REJECTED',
-          notes: `${existing.notes || ''}\n[REJECTED: ${reason || 'No reason provided'}]`,
+          notes: `${existing.notes || ''}\n[REJECTED: ${trimmedReason}]`,
         },
       });
       if (result.count !== 1) throw new BadRequestException('GRN has already been processed');
@@ -1380,7 +1631,7 @@ export class PurchaseService {
 
     await this._createAuditLog(businessId, userId, 'GoodsReceivedNote', grnId, 'REJECT', {
       action: 'GRN rejected',
-      reason,
+      reason: trimmedReason,
     });
 
     this.logger.log(`[PURCHASES] GRN rejected: ${grnId}`);
@@ -1401,6 +1652,49 @@ export class PurchaseService {
     dto: CreatePurchaseReturnDto,
   ): Promise<PurchaseReturnResponseDto> {
     this.logger.log(`[PURCHASES] Creating purchase return for PO: ${dto.purchaseOrderId}`);
+
+    if (!Array.isArray(dto.items) || dto.items.length === 0) {
+      throw new BadRequestException('At least one purchase return item is required');
+    }
+    const allowedReasons = new Set(['DEFECTIVE', 'EXPIRED', 'WRONG_ITEM', 'OVERAGE', 'OTHER']);
+    for (const item of dto.items) {
+      const quantity = Number(item.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw new BadRequestException('Return quantity must be a positive finite number');
+      }
+      if (!allowedReasons.has(item.reason)) {
+        throw new BadRequestException('Invalid purchase return reason');
+      }
+    }
+
+    const idempotencyHash = dto.idempotencyKey?.trim()
+      ? createHash('sha256').update(`purchase-return:${dto.idempotencyKey.trim()}`).digest('hex')
+      : undefined;
+    const fingerprint = idempotencyHash
+      ? requestFingerprint({
+          purchaseOrderId: dto.purchaseOrderId,
+          returnNumber: dto.returnNumber?.trim() || null,
+          items: dto.items.map((item) => ({
+            purchaseOrderItemId: item.purchaseOrderItemId,
+            quantity: Number(item.quantity),
+            reason: item.reason,
+            notes: item.notes?.trim() || null,
+          })),
+          notes: dto.notes?.trim() || null,
+        })
+      : undefined;
+    if (idempotencyHash) {
+      const existing = await this.prisma.purchaseReturn.findFirst({
+        where: { businessId, idempotencyKey: idempotencyHash },
+        select: { id: true, requestFingerprint: true },
+      });
+      if (existing) {
+        if (existing.requestFingerprint !== fingerprint) {
+          throw new ConflictException('Idempotency key was already used for a different return');
+        }
+        return this.getPurchaseReturnById(businessId, existing.id);
+      }
+    }
 
     const po = await this.prisma.purchaseOrder.findFirst({
       where: {
@@ -1488,11 +1782,25 @@ export class PurchaseService {
     }
 
     let purchaseReturn;
+    let createdNew = false;
     try {
       purchaseReturn = await this.prisma.$transaction(async (tx) => {
         // Reserve returnable accepted stock under the same PO lock so parallel
         // draft return requests cannot overbook the remaining return quantity.
         await tx.$queryRaw`SELECT "id" FROM "PurchaseOrder" WHERE "id" = ${po.id} FOR UPDATE`;
+        if (idempotencyHash) {
+          const replay = await tx.purchaseReturn.findFirst({
+            where: { businessId, idempotencyKey: idempotencyHash },
+          });
+          if (replay) {
+            if (replay.requestFingerprint !== fingerprint) {
+              throw new ConflictException(
+                'Idempotency key was already used for a different return',
+              );
+            }
+            return replay;
+          }
+        }
         const [lockedAcceptedItems, lockedReturns] = await Promise.all([
           tx.gRNItem.findMany({ where: { grn: { purchaseOrderId: po.id, status: 'ACCEPTED' } } }),
           tx.purchaseReturn.findMany({
@@ -1503,15 +1811,25 @@ export class PurchaseService {
         const acceptedByItem = new Map<string, number>();
         const reservedByItem = new Map<string, number>();
         for (const row of lockedAcceptedItems)
-          acceptedByItem.set(row.purchaseOrderItemId, (acceptedByItem.get(row.purchaseOrderItemId) || 0) + row.acceptedQuantity);
+          acceptedByItem.set(
+            row.purchaseOrderItemId,
+            (acceptedByItem.get(row.purchaseOrderItemId) || 0) + row.acceptedQuantity,
+          );
         for (const ret of lockedReturns)
           for (const item of ret.items)
-            reservedByItem.set(item.purchaseOrderItemId, (reservedByItem.get(item.purchaseOrderItemId) || 0) + item.quantity);
+            reservedByItem.set(
+              item.purchaseOrderItemId,
+              (reservedByItem.get(item.purchaseOrderItemId) || 0) + item.quantity,
+            );
         const requestedByItemLocked = new Map<string, number>();
         for (const item of returnItems) {
-          const requested = (requestedByItemLocked.get(item.purchaseOrderItemId) || 0) + item.quantity;
+          const requested =
+            (requestedByItemLocked.get(item.purchaseOrderItemId) || 0) + item.quantity;
           requestedByItemLocked.set(item.purchaseOrderItemId, requested);
-          if (requested + (reservedByItem.get(item.purchaseOrderItemId) || 0) > (acceptedByItem.get(item.purchaseOrderItemId) || 0) + 1e-8) {
+          if (
+            requested + (reservedByItem.get(item.purchaseOrderItemId) || 0) >
+            (acceptedByItem.get(item.purchaseOrderItemId) || 0) + 1e-8
+          ) {
             throw new BadRequestException('Return quantity exceeds accepted, unreturned quantity');
           }
         }
@@ -1532,6 +1850,8 @@ export class PurchaseService {
             id: uuid(),
             businessId,
             returnNumber,
+            idempotencyKey: idempotencyHash,
+            requestFingerprint: fingerprint,
             purchaseOrderId: dto.purchaseOrderId,
             supplierId: po.supplierId,
             status: 'DRAFT',
@@ -1543,11 +1863,25 @@ export class PurchaseService {
         await tx.purchaseReturnItem.createMany({
           data: returnItems.map((item) => ({ id: uuid(), purchaseReturnId: created.id, ...item })),
         });
+        createdNew = true;
         return created;
       });
     } catch (error) {
       // Keep a readable conflict response if another request wins the unique-key race.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        if (idempotencyHash) {
+          const replay = await this.prisma.purchaseReturn.findFirst({
+            where: { businessId, idempotencyKey: idempotencyHash },
+          });
+          if (replay) {
+            if (replay.requestFingerprint !== fingerprint) {
+              throw new ConflictException(
+                'Idempotency key was already used for a different return',
+              );
+            }
+            return this.getPurchaseReturnById(businessId, replay.id);
+          }
+        }
         const duplicate = await this.prisma.purchaseReturn.findFirst({
           where: { businessId, returnNumber: returnNumber! },
           select: { id: true },
@@ -1559,12 +1893,23 @@ export class PurchaseService {
       throw error;
     }
 
-    await this._createAuditLog(businessId, userId, 'PurchaseReturn', purchaseReturn.id, 'CREATE', {
-      action: 'Purchase return created',
-      returnNumber: purchaseReturn.returnNumber,
-    });
+    if (createdNew) {
+      await this._createAuditLog(
+        businessId,
+        userId,
+        'PurchaseReturn',
+        purchaseReturn.id,
+        'CREATE',
+        {
+          action: 'Purchase return created',
+          returnNumber: purchaseReturn.returnNumber,
+        },
+      );
 
-    this.logger.log(`[PURCHASES] Purchase return created: ${purchaseReturn.id} (${returnNumber})`);
+      this.logger.log(
+        `[PURCHASES] Purchase return created: ${purchaseReturn.id} (${returnNumber})`,
+      );
+    }
 
     return this.getPurchaseReturnById(businessId, purchaseReturn.id);
   }
@@ -1660,11 +2005,19 @@ export class PurchaseService {
     await this.prisma.$transaction(async (tx) => {
       const ret = await tx.purchaseReturn.findFirst({
         where: { id: returnId, businessId },
-        include: { purchaseOrder: true, items: { include: { purchaseOrderItem: true } } },
+        include: {
+          purchaseOrder: true,
+          items: {
+            include: {
+              purchaseOrderItem: { include: { product: { select: { buyingPrice: true } } } },
+            },
+          },
+        },
       });
       if (!ret) throw new NotFoundException('Purchase return not found');
       if (ret.status !== 'DRAFT')
         throw new BadRequestException('Only DRAFT returns can be approved');
+      await tx.$queryRaw`SELECT "id" FROM "PurchaseOrder" WHERE "id" = ${ret.purchaseOrderId} AND "businessId" = ${businessId} FOR UPDATE`;
       await assertAccountingPeriodOpen(tx, businessId, new Date());
 
       const claimed = await tx.purchaseReturn.updateMany({
@@ -1675,6 +2028,30 @@ export class PurchaseService {
         throw new BadRequestException('Purchase return has already been processed');
 
       for (const item of ret.items) {
+        await tx.$queryRaw`SELECT "id" FROM "StockBalance" WHERE "productId" = ${item.purchaseOrderItem.productId} AND "locationId" = ${ret.purchaseOrder.locationId} FOR UPDATE`;
+        const stock = await tx.stockBalance.findUnique({
+          where: {
+            productId_locationId: {
+              productId: item.purchaseOrderItem.productId,
+              locationId: ret.purchaseOrder.locationId,
+            },
+          },
+          select: { quantity: true },
+        });
+        if (!stock || stock.quantity < item.quantity) {
+          throw new BadRequestException(
+            `Insufficient stock to approve return for ${item.purchaseOrderItem.productId}`,
+          );
+        }
+        const unitCost = await this.inventory.outgoingUnitCost(
+          tx,
+          businessId,
+          item.purchaseOrderItem.productId,
+          ret.purchaseOrder.locationId,
+          item.quantity,
+          stock.quantity,
+          item.purchaseOrderItem.product.buyingPrice,
+        );
         const result = await tx.stockBalance.updateMany({
           where: {
             productId: item.purchaseOrderItem.productId,
@@ -1699,6 +2076,7 @@ export class PurchaseService {
             referenceId: ret.id,
             referenceType: 'PurchaseReturn',
             notes: `Returned to ${ret.supplierId} (Return: ${ret.returnNumber})`,
+            unitCost,
             createdBy: userId,
           },
         });
@@ -1844,6 +2222,7 @@ export class PurchaseService {
       shippingCost: Number(dto.shippingCost || 0),
       taxAmount: dto.taxAmount === undefined ? null : Number(dto.taxAmount),
       taxPercentage: dto.taxPercentage === undefined ? null : Number(dto.taxPercentage),
+      taxRecoverable: dto.taxRecoverable ?? true,
       notes: dto.notes ?? null,
       referenceNumber: dto.referenceNumber ?? null,
     };
@@ -1909,7 +2288,7 @@ export class PurchaseService {
         },
       });
     } catch (error) {
-      this.logger.error(`[PURCHASES] Failed to create audit log: ${error.message}`);
+      this.logger.error('[PURCHASES] Failed to create audit log');
     }
   }
 }

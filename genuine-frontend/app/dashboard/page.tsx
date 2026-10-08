@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Clock3, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
-import { dashboardAPI, type DashboardExecutiveData, type DashboardFilter, type DashboardTransaction, type ExpenseBreakdownRow, type LowStockRow } from '@/lib/api/dashboard';
+import { dashboardAPI, type DashboardExecutiveData, type DashboardFilter, type DashboardMetric, type DashboardTransaction, type ExpenseBreakdownRow, type LowStockRow } from '@/lib/api/dashboard';
 import { getApiError } from '@/lib/api';
 import { CashFlowPanel, DashboardSkeleton, ExpenseBreakdown, InventoryAlerts, MetricCard, RecentActivity, RevenueExpenseChart, SalesTrendChart, TopProducts } from '@/components/dashboard/DashboardWidgets';
 
@@ -135,9 +135,9 @@ export default function DashboardPage() {
   }, [canViewReports, canViewInventory, filter, permissions]);
 
   const availableMetrics = executive?.summary;
-  const metricCards = availableMetrics ? [
+  const metricCards: Array<{ metric: DashboardMetric; tone: string; cardTone?: string; valueColor: string; invertTrend?: boolean }> = availableMetrics ? [
     { metric: availableMetrics.totalRevenue, tone: 'bg-[#b9e52e] text-[#354900]', valueColor: 'text-[#24713c]' },
-    { metric: availableMetrics.totalExpenses, tone: 'bg-[#ffb4a8] text-[#842a20]', valueColor: 'text-[#b43f31]', invertTrend: true },
+    { metric: availableMetrics.totalExpenses, tone: 'bg-[#e7a7b6] text-[#842a20]', cardTone: 'bg-[#f2c4ce] border-[#e7b0bc]', valueColor: 'text-[#842a20]', invertTrend: true },
     { metric: availableMetrics.totalProfit, tone: 'bg-[#ffd541] text-[#624500]', valueColor: 'text-[#9a6a00]' },
     { metric: availableMetrics.profitMargin, tone: 'bg-[#a8ccff] text-[#214e88]', valueColor: 'text-[#315fa5]' },
     { metric: availableMetrics.cashOnHand, tone: 'bg-[#77ddb0] text-[#10563f]', valueColor: 'text-[#147554]' },
@@ -169,7 +169,7 @@ export default function DashboardPage() {
       {executive ? <>
         <section aria-labelledby="kpi-heading">
           <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-[#527000]">Key indicators</p><h2 id="kpi-heading" className="mt-1 text-lg font-semibold text-[#292d27]">Financial and stock position</h2></div><p className="text-[11px] text-[#747a68]">Based on {executive.period}</p></div>
-          <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 xl:grid-cols-4">{metricCards.map(({ metric, tone, valueColor, invertTrend }) => <MetricCard key={metric.name} metric={metric} currency={executive.currency} tone={tone} valueColor={valueColor} invertTrend={invertTrend} />)}</div>
+        <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 xl:grid-cols-4">{metricCards.map(({ metric, tone, cardTone, valueColor, invertTrend }) => <MetricCard key={metric.name} metric={metric} currency={executive.currency} tone={tone} cardTone={cardTone} valueColor={valueColor} invertTrend={invertTrend} />)}</div>
           <p className="mt-3 text-[11px] leading-5 text-[#8a8d85]">Revenue, expenses and profit use the selected period. Inventory value is a current snapshot as of {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(executive.inventoryAsOf))}; it is not a historical comparison.</p>
         </section>
 

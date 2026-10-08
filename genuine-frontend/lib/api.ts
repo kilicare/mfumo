@@ -59,6 +59,13 @@ export const tokenStorage = {
   updateAccess(accessToken: string) {
     if (typeof window !== 'undefined') localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   },
+  updateTokens(accessToken: string, refreshToken: string) {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=604800; SameSite=Lax${secure}`;
+  },
   updateUser(user: AuthUser) {
     if (typeof window !== 'undefined') localStorage.setItem(USER_KEY, JSON.stringify(user));
   },
@@ -85,6 +92,30 @@ apiClient.interceptors.request.use((config) => {
 
 let refreshInFlight: Promise<string> | null = null;
 
+async function rotateRefreshToken(fallbackToken: string): Promise<string> {
+  const rotate = async () => {
+    // Refresh tokens live in shared localStorage; serialize requests across tabs where supported.
+    const refreshToken = tokenStorage.readRefresh() || fallbackToken;
+    const response = await axios.post<ApiEnvelope<{ accessToken: string; refreshToken: string }>>(
+      `${API_URL}/auth/refresh`,
+      { refreshToken },
+      { timeout: 20_000 },
+    );
+    const payload = response.data.data ?? (response.data as unknown as { accessToken: string; refreshToken: string });
+    if (!payload?.accessToken || !payload.refreshToken) {
+      throw new Error('Refresh response did not include rotated tokens');
+    }
+    tokenStorage.updateTokens(payload.accessToken, payload.refreshToken);
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('genuine:token-refreshed'));
+    return payload.accessToken;
+  };
+
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    return navigator.locks.request('genuine-auth-token-refresh', rotate);
+  }
+  return rotate();
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ApiEnvelope<unknown>>) => {
@@ -98,23 +129,33 @@ apiClient.interceptors.response.use(
       if (refreshToken) {
         original._authRetry = true;
         try {
-          refreshInFlight ??= axios
-            .post<ApiEnvelope<{ accessToken: string }>>(`${API_URL}/auth/refresh`, { refreshToken }, { timeout: 20_000 })
-            .then((response) => {
-              const payload = response.data.data ?? (response.data as unknown as { accessToken: string });
-              if (!payload?.accessToken) throw new Error('Refresh response did not include an access token');
-              tokenStorage.updateAccess(payload.accessToken);
-              if (typeof window !== 'undefined') window.dispatchEvent(new Event('genuine:token-refreshed'));
-              return payload.accessToken;
-            })
-            .finally(() => {
-              refreshInFlight = null;
-            });
+          refreshInFlight ??= rotateRefreshToken(refreshToken).finally(() => {
+            refreshInFlight = null;
+          });
           const accessToken = await refreshInFlight;
           original.headers.Authorization = `Bearer ${accessToken}`;
           return apiClient(original);
         } catch {
-          tokenStorage.clear();
+          // Another tab may have rotated the shared refresh token first; do not erase its new session.
+          const latestRefreshToken = tokenStorage.readRefresh();
+          if (latestRefreshToken && latestRefreshToken !== refreshToken) {
+            try {
+              const response = await axios.post<ApiEnvelope<{ accessToken: string; refreshToken: string }>>(
+                `${API_URL}/auth/refresh`,
+                { refreshToken: latestRefreshToken },
+                { timeout: 20_000 },
+              );
+              const payload = response.data.data ?? (response.data as unknown as { accessToken: string; refreshToken: string });
+              if (!payload?.accessToken || !payload.refreshToken) throw new Error('Refresh response did not include rotated tokens');
+              tokenStorage.updateTokens(payload.accessToken, payload.refreshToken);
+              original.headers.Authorization = `Bearer ${payload.accessToken}`;
+              return apiClient(original);
+            } catch {
+              if (tokenStorage.readRefresh() === latestRefreshToken) tokenStorage.clear();
+            }
+          } else {
+            tokenStorage.clear();
+          }
           if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
             window.location.assign('/login?reason=session-expired');
           }

@@ -7,6 +7,8 @@ import {
   Min,
   ArrayMinSize,
   IsEnum,
+  MaxLength,
+  MinLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -24,6 +26,7 @@ export class PurchaseReturnItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   notes?: string;
 }
 
@@ -33,7 +36,14 @@ export class CreatePurchaseReturnDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   returnNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  idempotencyKey?: string;
 
   @ValidateNested({ each: true })
   @Type(() => PurchaseReturnItemDto)
@@ -42,5 +52,6 @@ export class CreatePurchaseReturnDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 }

@@ -33,6 +33,8 @@ import { InventoryModule } from './inventory/inventory.module';
 import { PaymentsModule } from './payments/payments.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { SupportModule } from './support/support.module';
+import { validateEnv } from './env';
 
 // Controllers
 import { AppController } from './app.controller';
@@ -42,6 +44,7 @@ import { AppController } from './app.controller';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env', '.env.production'],
+      validate: (config) => validateEnv(config),
     }),
     DatabaseModule,
     CommonModule,
@@ -55,6 +58,7 @@ import { AppController } from './app.controller';
     PaymentsModule,
     AnalyticsModule,
     NotificationsModule,
+    SupportModule,
   ],
   controllers: [AppController],
   providers: [

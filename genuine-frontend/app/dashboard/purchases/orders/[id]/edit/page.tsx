@@ -27,6 +27,7 @@ export default function EditPurchaseOrderPage() {
   const [expected, setExpected] = useState('');
   const [shipping, setShipping] = useState('0');
   const [tax, setTax] = useState('0');
+  const [taxRecoverable, setTaxRecoverable] = useState(true);
   const [notes, setNotes] = useState('');
   const [reference, setReference] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
@@ -50,6 +51,7 @@ export default function EditPurchaseOrderPage() {
         setExpected(dateValue(po.expectedDeliveryDate));
         setShipping(String(po.shippingCost));
         setTax(String(po.taxAmount));
+        setTaxRecoverable(po.taxRecoverable);
         setNotes(po.notes ?? '');
         setReference(po.referenceNumber ?? '');
         setLines(po.items.map(item => ({ productId: item.productId, quantity: String(item.quantity), unitPrice: String(item.unitPrice), discount: String(item.discount) })));
@@ -104,6 +106,7 @@ export default function EditPurchaseOrderPage() {
         items: lines.map(line => ({ productId: line.productId, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), discount: Number(line.discount) })),
         shippingCost: Number(shipping) || 0,
         taxAmount: Number(tax) || 0,
+        taxRecoverable,
         notes: notes.trim(),
         referenceNumber: reference.trim(),
       });
@@ -138,7 +141,7 @@ export default function EditPurchaseOrderPage() {
           <p className="text-right text-xs text-[#73766f] sm:col-span-5">Line total: {purchaseMoney(money(Math.max(0,(Number(line.quantity)||0)*(Number(line.unitPrice)||0)-(Number(line.discount)||0))))}</p>
         </div>)}</div>
       </section>
-      <section className="grid gap-4 rounded-2xl border border-[#e6e8e1] bg-white p-5 shadow-sm sm:grid-cols-2 sm:p-6"><label className="text-sm font-medium">Shipping cost<input type="number" min="0" step="0.01" value={shipping} onChange={e=>setShipping(e.target.value)} className={`${input} mt-1.5`}/></label><label className="text-sm font-medium">Tax amount<input type="number" min="0" step="0.01" value={tax} onChange={e=>setTax(e.target.value)} className={`${input} mt-1.5`}/></label><label className="text-sm font-medium sm:col-span-2">Notes<textarea rows={3} maxLength={1000} value={notes} onChange={e=>setNotes(e.target.value)} className={`${input} mt-1.5 py-2`}/></label><div className="rounded-xl bg-[#f5f6f2] p-4 sm:col-span-2"><div className="flex justify-between text-sm"><span>Items subtotal</span><span>{purchaseMoney(subtotal)}</span></div><div className="mt-2 flex justify-between text-sm"><span>Shipping + tax</span><span>{purchaseMoney(money((Number(shipping)||0)+(Number(tax)||0)))}</span></div><div className="mt-3 flex justify-between border-t border-[#dfe2da] pt-3 text-lg font-bold"><span>Order total</span><span>{purchaseMoney(total)}</span></div></div></section>
+      <section className="grid gap-4 rounded-2xl border border-[#e6e8e1] bg-white p-5 shadow-sm sm:grid-cols-2 sm:p-6"><label className="text-sm font-medium">Shipping cost<input type="number" min="0" step="0.01" value={shipping} onChange={e=>setShipping(e.target.value)} className={`${input} mt-1.5`}/></label><label className="text-sm font-medium">Tax amount<input type="number" min="0" step="0.01" value={tax} onChange={e=>setTax(e.target.value)} className={`${input} mt-1.5`}/></label><label className="flex items-start gap-2 self-end text-xs text-[#53584f]"><input type="checkbox" checked={taxRecoverable} onChange={e=>setTaxRecoverable(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#738900]"/><span><span className="font-semibold">Tax is recoverable</span><span className="mt-0.5 block text-[#73766f]">Recoverable tax stays out of stock cost. Clear this for non-recoverable tax.</span></span></label><label className="text-sm font-medium sm:col-span-2">Notes<textarea rows={3} maxLength={1000} value={notes} onChange={e=>setNotes(e.target.value)} className={`${input} mt-1.5 py-2`}/></label><div className="rounded-xl bg-[#f5f6f2] p-4 sm:col-span-2"><div className="flex justify-between text-sm"><span>Items subtotal</span><span>{purchaseMoney(subtotal)}</span></div><div className="mt-2 flex justify-between text-sm"><span>Shipping + tax</span><span>{purchaseMoney(money((Number(shipping)||0)+(Number(tax)||0)))}</span></div><div className="mt-3 flex justify-between border-t border-[#dfe2da] pt-3 text-lg font-bold"><span>Order total</span><span>{purchaseMoney(total)}</span></div></div></section>
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Link href={`/dashboard/purchases/orders/${id}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#dfe2da] px-5 text-sm font-semibold">Cancel</Link><button disabled={saving||!products.length||!suppliers.length||!locations.length} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-transparent bg-[#20211f] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#343632] hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#738900] disabled:opacity-50 dark:border-[#596347] dark:bg-[#050605] dark:text-[#e7e9e3] dark:hover:border-[#829600] dark:hover:bg-[#111510] dark:hover:shadow-[0_0_18px_rgba(216,240,75,0.12)] dark:focus-visible:outline-[#d8f04b]">{saving&&<Loader2 size={16} className="animate-spin"/>}Save changes</button></div>
     </form>}
   </div>;

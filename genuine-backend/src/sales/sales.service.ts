@@ -42,6 +42,7 @@ const termsDays: Record<string, number> = {
 const invoiceInclude = {
   customer: true,
   location: true,
+  business: { select: { currency: true } },
   items: { include: { product: true } },
   payments: { select: { amount: true, status: true } },
   returns: { select: { status: true, totalAmount: true } },
@@ -56,6 +57,35 @@ export class SalesService {
     private readonly inventory: InventoryService,
     private readonly notifications: NotificationsService,
   ) {}
+
+  async getInvoiceOptions(businessId: string) {
+    const [business, locations, salespeople] = await Promise.all([
+      this.prisma.business.findUnique({
+        where: { id: businessId },
+        select: { currency: true, taxPercentage: true },
+      }),
+      this.prisma.location.findMany({
+        where: { businessId, isActive: true },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, name: true, code: true, isActive: true },
+      }),
+      this.prisma.user.findMany({
+        where: { businessId, isActive: true },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+        select: { id: true, firstName: true, lastName: true },
+      }),
+    ]);
+    if (!business) throw new NotFoundException('Business not found');
+    return {
+      locations,
+      salespeople: salespeople.map((user) => ({
+        id: user.id,
+        name: `${user.firstName} ${user.lastName}`.trim(),
+      })),
+      taxPercentage: business.taxPercentage,
+      currency: business.currency,
+    };
+  }
 
   async createSalesInvoice(
     businessId: string,
@@ -77,7 +107,16 @@ export class SalesService {
     const lines = await this.prepareLines(businessId, dto.items);
     const subtotal = money(lines.reduce((sum, line) => sum + line.total, 0));
     const discount = this.discountFor(subtotal, dto.discountAmount, dto.discountPercentage);
-    const taxAmount = money(dto.taxAmount || 0);
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { taxPercentage: true },
+    });
+    if (!business) throw new NotFoundException('Business not found');
+    const taxableAmount = money(subtotal - discount.amount);
+    const taxAmount =
+      dto.taxAmount !== undefined
+        ? money(dto.taxAmount)
+        : money((taxableAmount * (dto.taxPercentage ?? business.taxPercentage)) / 100);
     const totalAmount = money(subtotal - discount.amount + taxAmount);
     if (totalAmount < 0) throw new BadRequestException('Invoice total cannot be negative');
     const invoiceDate = dto.invoiceDate ? this.parseInvoiceDate(dto.invoiceDate) : new Date();
@@ -95,6 +134,14 @@ export class SalesService {
     let id: string;
     try {
       id = await this.prisma.$transaction(async (tx) => {
+        if (dto.taxAmount !== undefined || dto.taxPercentage !== undefined)
+          await this.assertPermission(tx, businessId, userId, 'settings.edit');
+        const grossSubtotal = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
+        const lineDiscount = lines.reduce((sum, line) => sum + line.discount, 0);
+        const discountPercentage =
+          grossSubtotal > 0 ? ((lineDiscount + discount.amount) / grossSubtotal) * 100 : 0;
+        if (discountPercentage > 0)
+          await this.assertDiscountLimit(tx, businessId, userId, discountPercentage);
         await tx.$queryRaw`SELECT "id" FROM "Customer" WHERE "id" = ${customer.id} AND "businessId" = ${businessId} FOR UPDATE`;
         if (!['COD', 'PREPAID'].includes(terms)) {
           const outstanding = await this.customerOutstanding(
@@ -252,6 +299,8 @@ export class SalesService {
       if (!before) throw new NotFoundException('Sales invoice not found');
       if (before.status !== 'DRAFT')
         throw new BadRequestException('Only DRAFT invoices can be updated');
+      if (dto.taxAmount !== undefined || dto.taxPercentage !== undefined)
+        await this.assertPermission(tx, businessId, userId, 'settings.edit');
       const customerId = dto.customerId || before.customerId;
       const locationId = dto.locationId || before.locationId;
       const customer = await tx.customer.findFirst({
@@ -306,7 +355,34 @@ export class SalesService {
             ? undefined
             : before.discountPercent,
       );
-      const taxAmount = money(dto.taxAmount !== undefined ? dto.taxAmount : before.taxAmount);
+      const taxableAmountBefore = money(before.subtotal - before.discountAmount);
+      const business = await tx.business.findUnique({
+        where: { id: businessId },
+        select: { taxPercentage: true },
+      });
+      if (!business) throw new NotFoundException('Business not found');
+      const taxableBaseChanged =
+        dto.items !== undefined ||
+        dto.discountAmount !== undefined ||
+        dto.discountPercentage !== undefined;
+      const grossSubtotal = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
+      const lineDiscount = lines.reduce((sum, line) => sum + line.discount, 0);
+      const discountPercentage =
+        grossSubtotal > 0 ? ((lineDiscount + discount.amount) / grossSubtotal) * 100 : 0;
+      if (discountPercentage > 1e-8)
+        await this.assertDiscountLimit(tx, businessId, userId, discountPercentage);
+      const effectiveTaxPercentage =
+        dto.taxPercentage ??
+        (taxableAmountBefore > 0
+          ? (before.taxAmount / taxableAmountBefore) * 100
+          : business.taxPercentage);
+      const taxableAmount = money(subtotal - discount.amount);
+      const taxAmount =
+        dto.taxAmount !== undefined
+          ? money(dto.taxAmount)
+          : dto.taxPercentage !== undefined || taxableBaseChanged
+            ? money((taxableAmount * effectiveTaxPercentage) / 100)
+            : before.taxAmount;
       const totalAmount = money(subtotal - discount.amount + taxAmount);
       if (totalAmount < 0) throw new BadRequestException('Invoice total cannot be negative');
       if (!['COD', 'PREPAID'].includes(terms)) {
@@ -518,31 +594,26 @@ export class SalesService {
       if (!invoice) throw new NotFoundException('Sales invoice not found');
       if (invoice.status !== 'DRAFT')
         throw new BadRequestException('Discounts can only be applied to DRAFT invoices');
-      const user = await tx.user.findFirst({
-        where: { id: userId, businessId },
-        include: { userRoles: { include: { role: { select: { name: true, businessId: true } } } } },
-      });
-      if (!user) throw new NotFoundException('User not found');
-      const roles = user.userRoles
-        .filter((link) => link.role.businessId === businessId)
-        .map((link) => link.role.name);
-      const max = roles.some((role) => ['Owner', 'Admin'].includes(role))
-        ? 100
-        : roles.includes('Manager')
-          ? 25
-          : roles.includes('Salesperson')
-            ? 10
-            : 0;
-      if (dto.percentage > max)
-        throw new ForbiddenException(`Your role may apply discounts up to ${max}%`);
+      await this.assertDiscountLimit(tx, businessId, userId, dto.percentage);
       const amount = money((invoice.subtotal * dto.percentage) / 100);
+      const business = await tx.business.findUnique({
+        where: { id: businessId },
+        select: { taxPercentage: true },
+      });
+      if (!business) throw new NotFoundException('Business not found');
+      const taxableBefore = money(invoice.subtotal - invoice.discountAmount);
+      const rate =
+        taxableBefore > 0 ? (invoice.taxAmount / taxableBefore) * 100 : business.taxPercentage;
+      const taxableAfter = money(invoice.subtotal - amount);
+      const taxAmount = money((taxableAfter * rate) / 100);
       const updated = await tx.salesInvoice.update({
         where: { id: invoiceId },
         data: {
           discountPercent: dto.percentage,
           discountAmount: amount,
-          totalAmount: money(invoice.subtotal - amount + invoice.taxAmount),
-          balance: money(invoice.subtotal - amount + invoice.taxAmount),
+          taxAmount,
+          totalAmount: money(taxableAfter + taxAmount),
+          balance: money(taxableAfter + taxAmount),
         },
       });
       await this.audit(
@@ -709,6 +780,7 @@ export class SalesService {
       if (invoice.status === 'CANCELLED')
         throw new BadRequestException('Invoice is already cancelled');
       if (invoice.status !== 'DRAFT') {
+        await assertAccountingPeriodOpen(tx, businessId, new Date());
         const paymentState = await this.invoicePaymentState(tx, invoiceId, invoice.totalAmount);
         if (paymentState.totalPaid > 0)
           throw new BadRequestException('Reverse/refund invoice payments before cancellation');
@@ -839,7 +911,10 @@ export class SalesService {
         const returnNumber = dto.returnNumber || (await this.nextReturnNumber(tx, businessId));
         const factor =
           invoice.subtotal > 0
-            ? Math.max(0, (invoice.subtotal - invoice.discountAmount) / invoice.subtotal)
+            ? Math.max(
+                0,
+                (invoice.subtotal - invoice.discountAmount + invoice.taxAmount) / invoice.subtotal,
+              )
             : 1;
         const lines = dto.items.map((line) => {
           const source = invoiceItems.find(
@@ -911,7 +986,10 @@ export class SalesService {
   async getSalesReturnById(businessId: string, returnId: string): Promise<SalesReturnResponseDto> {
     const ret = await this.prisma.salesReturn.findFirst({
       where: { id: returnId, businessId },
-      include: { invoice: { include: { customer: true } }, items: { include: { product: true } } },
+      include: {
+        invoice: { include: { customer: true, business: { select: { currency: true } } } },
+        items: { include: { product: true } },
+      },
     });
     if (!ret) throw new NotFoundException('Sales return not found');
     return this.mapReturn(ret);
@@ -936,7 +1014,7 @@ export class SalesService {
       this.prisma.salesReturn.findMany({
         where,
         include: {
-          invoice: { include: { customer: true } },
+          invoice: { include: { customer: true, business: { select: { currency: true } } } },
           items: { include: { product: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -996,6 +1074,7 @@ export class SalesService {
         throw new BadRequestException('Only AUTHORIZED returns can be received');
       if (ret.invoice.status === 'CANCELLED')
         throw new BadRequestException('Cannot receive a return for a cancelled invoice');
+      await assertAccountingPeriodOpen(tx, businessId, new Date());
       const originalSaleMovements = await tx.inventoryMovement.findMany({
         where: {
           businessId,
@@ -1107,7 +1186,7 @@ export class SalesService {
   private mapInvoice(invoice: InvoiceDetails): SalesInvoiceResponseDto {
     const totalPaid = money(
       invoice.payments
-        .filter((p) => ['RECORDED', 'VERIFIED'].includes(p.status))
+        .filter((p) => ['RECORDED', 'VERIFIED', 'RECONCILED', 'COMPLETED'].includes(p.status))
         .reduce((sum, p) => sum + p.amount, 0),
     );
     const returned = money(
@@ -1124,6 +1203,7 @@ export class SalesService {
     return {
       id: invoice.id,
       businessId: invoice.businessId,
+      currency: invoice.business.currency,
       invoiceNumber: invoice.invoiceNumber,
       customerId: invoice.customerId,
       customerName: invoice.customer.name,
@@ -1154,9 +1234,14 @@ export class SalesService {
       discountAmount: invoice.discountAmount,
       discountPercentage: invoice.discountPercent,
       taxableAmount: money(invoice.subtotal - invoice.discountAmount),
+      taxPercentage:
+        invoice.subtotal - invoice.discountAmount > 0
+          ? money((invoice.taxAmount / (invoice.subtotal - invoice.discountAmount)) * 100)
+          : 0,
       taxAmount: invoice.taxAmount,
       totalAmount: invoice.totalAmount,
       totalPaid,
+      returnCredits: returned,
       balance,
       paymentTerms: invoice.paymentTerms,
       attachments: this.parseAttachments(invoice.attachments),
@@ -1177,6 +1262,7 @@ export class SalesService {
     return {
       id: ret.id,
       businessId: ret.businessId,
+      currency: ret.invoice.business.currency,
       returnNumber: ret.returnNumber,
       salesInvoiceId: ret.invoiceId,
       invoiceNumber: ret.invoice.invoiceNumber,
@@ -1457,6 +1543,32 @@ export class SalesService {
       ),
     ];
     if (!keys.includes(key)) throw new ForbiddenException(`Missing required permission: ${key}`);
+  }
+
+  private async assertDiscountLimit(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    userId: string,
+    percentage: number,
+  ): Promise<void> {
+    await this.assertPermission(tx, businessId, userId, 'sales.discount');
+    const user = await tx.user.findFirst({
+      where: { id: userId, businessId },
+      include: { userRoles: { include: { role: { select: { name: true, businessId: true } } } } },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    const roles = user.userRoles
+      .filter((link) => link.role.businessId === businessId)
+      .map((link) => link.role.name);
+    const max = roles.some((role) => ['Owner', 'Admin'].includes(role))
+      ? 100
+      : roles.includes('Manager')
+        ? 25
+        : roles.includes('Salesperson')
+          ? 10
+          : 0;
+    if (percentage > max + 1e-8)
+      throw new ForbiddenException(`Your role may apply discounts up to ${max}%`);
   }
 
   private async audit(

@@ -50,6 +50,12 @@ export class PaymentsController {
     return this.payments.getAllPayments(businessId, query);
   }
 
+  @Get('methods')
+  @RequirePermission('payments.create')
+  paymentMethodsForEntry(@Business() businessId: string) {
+    return this.payments.getPaymentMethodsForEntry(businessId);
+  }
+
   @Post(':id/reconcile')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('payments.create')

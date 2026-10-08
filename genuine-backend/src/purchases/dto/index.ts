@@ -4,6 +4,7 @@ export * from './create-grn.dto';
 export * from './update-grn.dto';
 export * from './create-purchase-return.dto';
 export * from './create-purchase-payment.dto';
+export * from './reject-grn.dto';
 export * from './purchase-payment-response.dto';
 export * from './purchase-order-response.dto';
 export * from './purchase-filter.dto';

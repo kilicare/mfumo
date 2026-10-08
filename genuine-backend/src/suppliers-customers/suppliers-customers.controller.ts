@@ -240,7 +240,15 @@ export class SupplierCustomerController {
     @Business() businessId: string,
     @Param('id') customerId: string,
     @Query('month') month?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
-    return this.customerService.getCustomerStatement(businessId, customerId, month);
+    return this.customerService.getCustomerStatement(
+      businessId,
+      customerId,
+      month,
+      dateFrom,
+      dateTo,
+    );
   }
 }

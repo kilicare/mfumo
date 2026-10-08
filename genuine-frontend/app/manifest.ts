@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'G Genuine Business Suite',
     short_name: 'Genuine',
     description: 'Genuine workspace for products, purchasing, inventory, and business operations.',
-    start_url: '/dashboard',
+    start_url: '/',
     scope: '/',
     display: 'standalone',
     background_color: '#f3efe6',

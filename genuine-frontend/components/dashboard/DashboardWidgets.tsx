@@ -75,12 +75,14 @@ export function MetricCard({
   metric,
   currency,
   tone,
+  cardTone,
   valueColor,
   invertTrend = false,
 }: {
   metric: DashboardMetric;
   currency: string;
   tone: string;
+  cardTone?: string;
   valueColor: string;
   invertTrend?: boolean;
 }) {
@@ -93,7 +95,7 @@ export function MetricCard({
   const TrendIcon = positive ? ArrowUpRight : negative ? ArrowDownRight : Minus;
 
   return (
-    <article className="rounded-2xl border border-[#e8e9e5] bg-white p-4 shadow-sm shadow-black/[0.02] transition hover:-translate-y-0.5 hover:shadow-md sm:p-5">
+    <article className={`rounded-2xl border ${cardTone ?? 'border-[#e8e9e5] bg-white'} p-4 shadow-sm shadow-black/[0.02] transition hover:-translate-y-0.5 hover:shadow-md sm:p-5`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-xs font-medium text-[#777b73]">{metric.label || metric.name}</p>

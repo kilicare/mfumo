@@ -1,9 +1,25 @@
-import { IsDate, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsDate,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreatePurchasePaymentDto {
   @IsOptional()
   @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  idempotencyKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
   paymentNumber?: string;
 
   @Type(() => Number)
@@ -13,6 +29,8 @@ export class CreatePurchasePaymentDto {
   amount: number;
 
   @IsString()
+  @MinLength(1)
+  @MaxLength(128)
   paymentMethodId: string;
 
   @IsOptional()
@@ -22,9 +40,11 @@ export class CreatePurchasePaymentDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   reference?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 }

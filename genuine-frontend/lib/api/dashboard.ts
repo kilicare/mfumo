@@ -127,6 +127,11 @@ interface PaymentRow {
   id: string;
   paymentNumber: string;
   referenceType: string | null;
+  poId?: string | null;
+  invoiceId?: string | null;
+  expenseId?: string | null;
+  supplierId?: string | null;
+  customerId?: string | null;
   status: string;
   amount: number | string;
   paymentDate: string;
@@ -202,7 +207,7 @@ export const dashboardAPI = {
     if (permissions.includes('payments.view')) {
       sources.push({ name: 'payments', request: loadPage<PaymentRow>('/payments', { page: 1, limit: 8 }).then((rows) => rows.map((row) => ({
         id: `payment:${row.id}`, type: 'payment' as const, reference: row.paymentNumber,
-        description: (row.referenceType || 'Other').replace(/([a-z])([A-Z])/g, '$1 $2'),
+        description: paymentSourceLabel(row),
         amount: Number(row.amount), status: row.status, date: row.paymentDate,
       }))) });
     }
@@ -222,3 +227,12 @@ export const dashboardAPI = {
     };
   },
 };
+
+function paymentSourceLabel(row: PaymentRow) {
+  if (row.poId) return 'Purchase order';
+  if (row.invoiceId) return 'Sales invoice';
+  if (row.expenseId) return 'Expense';
+  if (row.supplierId) return 'Supplier';
+  if (row.customerId) return 'Customer';
+  return (row.referenceType || 'Other').replace(/([a-z])([A-Z])/g, '$1 $2');
+}

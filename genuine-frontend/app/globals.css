@@ -63,6 +63,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { border-radius: 999px; background: #c9cbc4; }
 ::-webkit-scrollbar-track { background: transparent; }
+.dashboard-sidebar-scrollbar {
+  scrollbar-color: rgb(255 255 255 / 22%) transparent;
+  scrollbar-width: thin;
+}
+.dashboard-sidebar-scrollbar::-webkit-scrollbar { width: 5px; }
+.dashboard-sidebar-scrollbar::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 22%); }
+.dashboard-sidebar-scrollbar::-webkit-scrollbar-thumb:hover { background: rgb(255 255 255 / 38%); }
 
 @media (prefers-reduced-motion: reduce) {
   .auth-background-video { display: none; }
@@ -89,6 +96,17 @@ html.dark body {
 html.dark button:not(:disabled):hover {
   filter: brightness(1.12);
   box-shadow: 0 5px 16px rgb(0 0 0 / 28%);
+}
+
+html.dark button.feedback-primary {
+  background-color: #303630 !important;
+  border-color: #596347;
+  color: #ffffff !important;
+}
+
+html.dark button.feedback-primary:hover {
+  background-color: #414941 !important;
+  border-color: #829600;
 }
 
 /* Charcoal action controls become near-black against the dark cards, with a
@@ -313,6 +331,13 @@ html.dark [class*="bg-[#ffd9d3"],
 html.dark [class*="bg-[#ffb4a8"] {
   background-color: #351f1d !important;
   color: #ff9e93 !important;
+}
+
+/* Give the blush expense KPI icon its own dark rose surface so its pink icon
+   stays distinct from both the tile and the dark dashboard card. */
+html.dark [class*="bg-[#e7a7b6"] {
+  background-color: #3b252d !important;
+  color: #f2c4ce !important;
 }
 
 html.dark [class*="bg-[#a8ccff"] {

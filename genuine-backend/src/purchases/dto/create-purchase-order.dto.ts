@@ -3,6 +3,7 @@ import {
   IsNumber,
   IsOptional,
   ValidateNested,
+  IsBoolean,
   Min,
   ArrayMinSize,
   IsDate,
@@ -23,7 +24,10 @@ class MaxDecimalPlacesConstraint implements ValidatorConstraintInterface {
     if (typeof value !== 'number' || !Number.isFinite(value)) return true;
     const maxPlaces = Number(args.constraints[0]);
     const [coefficient, exponentValue] = value.toString().toLowerCase().split('e');
-    const decimalPlaces = Math.max(0, (coefficient.split('.')[1]?.length ?? 0) - Number(exponentValue ?? 0));
+    const decimalPlaces = Math.max(
+      0,
+      (coefficient.split('.')[1]?.length ?? 0) - Number(exponentValue ?? 0),
+    );
     return decimalPlaces <= maxPlaces;
   }
 
@@ -65,8 +69,15 @@ class ExclusivePurchaseTaxInputsConstraint implements ValidatorConstraintInterfa
 class ExpectedDeliveryNotBeforeOrderDateConstraint implements ValidatorConstraintInterface {
   validate(value: unknown, args: ValidationArguments): boolean {
     const dto = args.object as { orderDate?: Date };
-    if (!(value instanceof Date) || Number.isNaN(value.getTime()) || !dto.orderDate || Number.isNaN(dto.orderDate.getTime())) return true;
-    const day = (date: Date) => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    if (
+      !(value instanceof Date) ||
+      Number.isNaN(value.getTime()) ||
+      !dto.orderDate ||
+      Number.isNaN(dto.orderDate.getTime())
+    )
+      return true;
+    const day = (date: Date) =>
+      Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
     return day(value) >= day(dto.orderDate);
   }
 
@@ -162,6 +173,10 @@ export class CreatePurchaseOrderDto {
   @Max(100)
   @Validate(MaxDecimalPlacesConstraint, [2])
   taxPercentage?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  taxRecoverable?: boolean;
 
   @IsOptional()
   @IsString()

@@ -366,6 +366,91 @@ export class AnalyticsService {
     };
   }
 
+  async getOutstandingReceivables(businessId: string) {
+    const [business, invoices] = await Promise.all([
+      this.prisma.business.findUnique({ where: { id: businessId }, select: { currency: true } }),
+      this.prisma.salesInvoice.findMany({
+        where: { businessId, status: { in: RECOGNIZED_INVOICE_STATUSES } },
+        include: {
+          customer: { select: { id: true, name: true, customerCode: true } },
+          payments: {
+            where: { status: { in: ACTIVE_PAYMENT_STATUSES } },
+            select: { amount: true },
+          },
+          returns: {
+            where: { status: { in: RECOGNIZED_RETURN_STATUSES } },
+            select: { totalAmount: true },
+          },
+        },
+        orderBy: [{ dueDate: 'asc' }, { invoiceDate: 'asc' }],
+      }),
+    ]);
+    if (!business) throw new NotFoundException('Business not found');
+    const asOf = new Date();
+    const rows = invoices.flatMap((invoice) => {
+      const paid = round(invoice.payments.reduce((sum, payment) => sum + payment.amount, 0));
+      const credits = round(invoice.returns.reduce((sum, ret) => sum + ret.totalAmount, 0));
+      const balance = round(Math.max(0, invoice.totalAmount - paid - credits));
+      if (balance <= MONEY_EPSILON) return [];
+      const daysOverdue =
+        invoice.dueDate && invoice.dueDate < asOf
+          ? Math.floor((asOf.getTime() - invoice.dueDate.getTime()) / 86_400_000)
+          : 0;
+      return [
+        {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          customerId: invoice.customer.id,
+          customerName: invoice.customer.name,
+          customerCode: invoice.customer.customerCode,
+          invoiceDate: invoice.invoiceDate,
+          dueDate: invoice.dueDate,
+          totalAmount: invoice.totalAmount,
+          totalPaid: paid,
+          returnCredits: credits,
+          balance,
+          daysOverdue,
+        },
+      ];
+    });
+    const groups = new Map<
+      string,
+      {
+        customerId: string;
+        customerName: string;
+        customerCode: string;
+        balance: number;
+        invoiceCount: number;
+        invoices: typeof rows;
+      }
+    >();
+    for (const row of rows) {
+      const customer = groups.get(row.customerId) || {
+        customerId: row.customerId,
+        customerName: row.customerName,
+        customerCode: row.customerCode,
+        balance: 0,
+        invoiceCount: 0,
+        invoices: [],
+      };
+      customer.balance = round(customer.balance + row.balance);
+      customer.invoiceCount += 1;
+      customer.invoices.push(row);
+      groups.set(row.customerId, customer);
+    }
+    const customers = [...groups.values()].sort(
+      (a, b) => b.balance - a.balance || a.customerName.localeCompare(b.customerName),
+    );
+    return {
+      asOf,
+      currency: business.currency,
+      totalOutstanding: round(rows.reduce((sum, row) => sum + row.balance, 0)),
+      invoiceCount: rows.length,
+      customerCount: customers.length,
+      customers,
+    };
+  }
+
   async getInventoryDashboard(businessId: string, filter: DashboardFilterDto) {
     const range = await this.getDateRange(businessId, filter);
     const [valuation, lowStock, movements, products, stockRows] = await Promise.all([
@@ -685,11 +770,12 @@ export class AnalyticsService {
         const row = ensureProduct(item.product);
         row.quantity += item.quantity;
         const itemTotal = Number(item.total || 0);
-        const discountShare = index === invoice.items.length - 1
-          ? discountRemaining
-          : lineSubtotal > MONEY_EPSILON
-            ? round(invoiceDiscount * (itemTotal / lineSubtotal))
-            : 0;
+        const discountShare =
+          index === invoice.items.length - 1
+            ? discountRemaining
+            : lineSubtotal > MONEY_EPSILON
+              ? round(invoiceDiscount * (itemTotal / lineSubtotal))
+              : 0;
         discountRemaining = round(discountRemaining - discountShare);
         row.revenue += itemTotal - discountShare;
       }

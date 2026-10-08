@@ -35,6 +35,14 @@ export class PaymentsService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  async getPaymentMethodsForEntry(businessId: string) {
+    return this.prisma.paymentMethod.findMany({
+      where: { businessId, isActive: true },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, name: true, isActive: true },
+    });
+  }
+
   async createPayment(businessId: string, userId: string, dto: CreatePaymentDto) {
     const amount = roundMoney(Number(dto.amount));
     if (!Number.isFinite(amount) || amount <= 0)
@@ -228,7 +236,13 @@ export class PaymentsService {
         where: { businessId, poId: id, status: { in: ACTIVE_PAYMENT_STATUSES } },
         _sum: { amount: true },
       });
-      const balance = roundMoney(po.totalAmount - (paid._sum.amount || 0));
+      const returned = await tx.purchaseReturn.aggregate({
+        where: { businessId, purchaseOrderId: id, status: 'APPROVED' },
+        _sum: { totalReturnAmount: true },
+      });
+      const balance = roundMoney(
+        po.totalAmount - (paid._sum.amount || 0) - (returned._sum.totalReturnAmount || 0),
+      );
       if (balance <= 0) throw new BadRequestException('Purchase order has no amount due');
       return { poId: id, supplierId: po.supplierId, number: po.poNumber, balance, po };
     }
@@ -1120,7 +1134,7 @@ export class PaymentsService {
     const asOf = requestedPeriod ? requestedPeriod.endDate : this.parseAsOf(filter.dateAs);
     let periodLabel = 'Current';
     if (requestedPeriod) periodLabel = requestedPeriod.period;
-    const [invoices, pos, payments, expenses, returns] = await Promise.all([
+    const [invoices, pos, payments, expenses, returns, supplierReturns] = await Promise.all([
       this.prisma.salesInvoice.findMany({
         where: { businessId, status: { notIn: ['DRAFT', 'CANCELLED'] }, issuedDate: { lte: asOf } },
       }),
@@ -1140,6 +1154,10 @@ export class PaymentsService {
           returnDate: { lte: asOf },
         },
       }),
+      this.prisma.purchaseReturn.findMany({
+        where: { businessId, status: 'APPROVED', approvedAt: { lte: asOf } },
+        select: { purchaseOrderId: true, totalReturnAmount: true },
+      }),
     ]);
     const invoicePaid = this.sumBy(
       payments.filter((p) => p.invoiceId),
@@ -1149,6 +1167,13 @@ export class PaymentsService {
       payments.filter((p) => p.poId),
       (p) => p.poId!,
     );
+    const poReturned = new Map<string, number>();
+    for (const ret of supplierReturns) {
+      poReturned.set(
+        ret.purchaseOrderId,
+        (poReturned.get(ret.purchaseOrderId) || 0) + ret.totalReturnAmount,
+      );
+    }
     const expensePaid = this.sumBy(
       payments.filter((p) => p.expenseId),
       (p) => p.expenseId!,
@@ -1162,7 +1187,11 @@ export class PaymentsService {
       ),
     );
     const ap = roundMoney(
-      pos.reduce((s, p) => s + Math.max(0, p.totalAmount - (poPaid.get(p.id) || 0)), 0),
+      pos.reduce(
+        (s, p) =>
+          s + Math.max(0, p.totalAmount - (poPaid.get(p.id) || 0) - (poReturned.get(p.id) || 0)),
+        0,
+      ),
     );
     const cash = roundMoney(
       payments.reduce(
@@ -1231,7 +1260,7 @@ export class PaymentsService {
       : null;
     if (filter.periodId && !period) throw new NotFoundException('Accounting period not found');
     const asOf = period ? period.endDate : this.parseAsOf(filter.dateAs);
-    const [sales, returns, pos, expenses, payments] = await Promise.all([
+    const [sales, returns, pos, expenses, payments, supplierReturns] = await Promise.all([
       this.prisma.salesInvoice.findMany({
         where: { businessId, status: { notIn: ['DRAFT', 'CANCELLED'] }, issuedDate: { lte: asOf } },
       }),
@@ -1246,6 +1275,10 @@ export class PaymentsService {
       }),
       this.prisma.payment.findMany({
         where: { businessId, status: { in: ACTIVE_PAYMENT_STATUSES }, paymentDate: { lte: asOf } },
+      }),
+      this.prisma.purchaseReturn.findMany({
+        where: { businessId, status: 'APPROVED', approvedAt: { lte: asOf } },
+        select: { purchaseOrderId: true, totalReturnAmount: true },
       }),
     ]);
     const inventoryValuation = await this.inventory.getStockValuationReport(businessId, {});
@@ -1267,6 +1300,13 @@ export class PaymentsService {
       payments.filter((p) => p.poId),
       (p) => p.poId!,
     );
+    const poReturned = new Map<string, number>();
+    for (const ret of supplierReturns) {
+      poReturned.set(
+        ret.purchaseOrderId,
+        (poReturned.get(ret.purchaseOrderId) || 0) + ret.totalReturnAmount,
+      );
+    }
     const returnedByInvoice = this.sumBy(returns, (r) => r.invoiceId);
     const totalSalesAmount = roundMoney(
       sales.reduce((s, i) => s + i.totalAmount, 0) - returns.reduce((s, r) => s + r.totalAmount, 0),
@@ -1283,7 +1323,11 @@ export class PaymentsService {
       ),
     );
     const totalPayables = roundMoney(
-      pos.reduce((s, p) => s + Math.max(0, p.totalAmount - (poPaid.get(p.id) || 0)), 0),
+      pos.reduce(
+        (s, p) =>
+          s + Math.max(0, p.totalAmount - (poPaid.get(p.id) || 0) - (poReturned.get(p.id) || 0)),
+        0,
+      ),
     );
     const totalInventoryValue = roundMoney(inventoryValuation.totalValue);
     const expensePaid = this.sumBy(

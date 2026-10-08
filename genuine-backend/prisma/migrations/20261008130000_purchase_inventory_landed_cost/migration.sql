@@ -1,0 +1,1 @@
+ALTER TABLE "PurchaseOrder" ADD COLUMN "taxRecoverable" BOOLEAN NOT NULL DEFAULT true;

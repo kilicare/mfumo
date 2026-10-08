@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowUpRight, ShieldCheck } from 'lucide-react';
-import { TypewriterHeading } from '@/components/auth/TypewriterHeading';
+import { AuthLeftPanel } from '@/components/auth/AuthLeftPanel';
 
 export function AuthFrame({
   eyebrow,
@@ -15,38 +14,10 @@ export function AuthFrame({
   children: React.ReactNode;
 }) {
   return (
-    <main className="min-h-screen bg-[#f7f7f4] md:grid md:grid-cols-[minmax(380px,0.9fr)_1.1fr]">
-      <aside className="relative hidden min-h-screen overflow-hidden bg-[#20211f] px-12 py-10 text-white md:flex md:flex-col md:justify-between lg:px-16">
-        <div className="absolute -right-40 -top-32 h-[32rem] w-[32rem] rounded-full border border-white/10" />
-        <div className="absolute -right-24 -top-16 h-[25rem] w-[25rem] rounded-full border border-[#d8f04b]/20" />
-        <div className="absolute -bottom-56 -left-40 h-[34rem] w-[34rem] rounded-full bg-[#d8f04b]/[0.07] blur-3xl" />
+    <main className="min-h-screen bg-[#f7f7f4] md:grid md:grid-cols-2">
+      <AuthLeftPanel />
 
-        <Link href="/login" className="relative flex w-fit items-center gap-3" aria-label="Genuine home">
-          <Image
-            src="/GGENUINE_FULL_BRAND_PACKAGE/logos/svg/logo-horizontal-white.svg"
-            alt=""
-            aria-hidden="true"
-            width={900}
-            height={220}
-            priority
-            className="h-auto w-[220px]"
-          />
-        </Link>
-
-        <div className="relative max-w-lg pb-16">
-          <p className="mb-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#d8f04b]"><span className="h-px w-7 bg-[#d8f04b]" /> One clear view of your business</p>
-          <TypewriterHeading text="Run every part of your business with confidence." />
-          <p className="mt-6 max-w-md text-base leading-7 text-white/65">Sales, stock, purchasing and finance, connected in one thoughtful workspace.</p>
-          <div className="mt-10 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-white/[0.08] text-[#d8f04b]"><ShieldCheck size={19} /></span>
-            <span className="text-sm leading-6 text-white/75">Your workspace is protected with secure account access.</span>
-            <ArrowUpRight className="ml-auto shrink-0 text-white/35" size={18} />
-          </div>
-        </div>
-        <p className="relative text-xs tracking-wide text-white/40">© 2026 Genuine Business Suite</p>
-      </aside>
-
-      <section className="auth-form-backdrop relative isolate flex min-h-screen flex-col overflow-hidden px-5 py-6 sm:px-10 md:px-12 lg:px-20">
+      <section className="auth-form-backdrop relative isolate flex min-h-screen flex-col overflow-hidden px-5 py-6 sm:px-10 md:px-8 lg:px-20">
         <video
           className="auth-background-video absolute inset-0 -z-20 h-full w-full object-cover"
           autoPlay

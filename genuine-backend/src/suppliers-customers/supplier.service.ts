@@ -16,6 +16,10 @@ import {
   SupplierStatementDto,
 } from './dto';
 
+const ACTIVE_PAYMENT_STATUSES = ['RECORDED', 'VERIFIED', 'RECONCILED', 'COMPLETED'];
+const SUPPLIER_PO_STATUSES = { notIn: ['DRAFT', 'CANCELLED'] };
+const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
 @Injectable()
 export class SupplierService {
   constructor(
@@ -134,12 +138,16 @@ export class SupplierService {
     }
 
     // Calculate financials
-    const totalPurchased = await this._calculateSupplierPurchases(supplierId);
-    const totalPaid = await this._calculateSupplierPayments(supplierId);
+    const [totalPurchased, totalPaid, totalReturned] = await Promise.all([
+      this._calculateSupplierPurchases(businessId, supplierId),
+      this._calculateSupplierPayments(businessId, supplierId),
+      this._calculateSupplierReturns(businessId, supplierId),
+    ]);
 
     return this._formatSupplierResponse(supplier, supplier.contacts || [], supplier.address, {
       totalPurchased,
       totalPaid,
+      totalReturned,
     });
   }
 
@@ -217,13 +225,17 @@ export class SupplierService {
     // Get financials for all suppliers
     const suppliersWithFinancials = await Promise.all(
       suppliers.map(async (supplier) => {
-        const totalPurchased = await this._calculateSupplierPurchases(supplier.id);
-        const totalPaid = await this._calculateSupplierPayments(supplier.id);
+        const [totalPurchased, totalPaid, totalReturned] = await Promise.all([
+          this._calculateSupplierPurchases(businessId, supplier.id),
+          this._calculateSupplierPayments(businessId, supplier.id),
+          this._calculateSupplierReturns(businessId, supplier.id),
+        ]);
 
         return {
           supplier,
           totalPurchased,
           totalPaid,
+          totalReturned,
         };
       }),
     );
@@ -237,6 +249,7 @@ export class SupplierService {
         {
           totalPurchased: item.totalPurchased,
           totalPaid: item.totalPaid,
+          totalReturned: item.totalReturned,
         },
       ),
     );
@@ -437,38 +450,78 @@ export class SupplierService {
 
     const period = month || new Date().toISOString().slice(0, 7); // YYYY-MM
 
-    // Get opening balance
-    const openingBalance = supplier.openingBalance || 0;
-
     // Get all transactions for the period
     const startDate = new Date(`${period}-01`);
-    const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
+    const endDate = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth() + 1, 1));
 
     // Get purchase orders
-    const purchaseOrders = await this.prisma.purchaseOrder.findMany({
-      where: {
-        supplierId,
-        createdAt: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
-    });
+    const [purchaseOrders, payments, returns, priorPurchases, priorPayments, priorReturns] =
+      await Promise.all([
+        this.prisma.purchaseOrder.findMany({
+          where: {
+            businessId,
+            supplierId,
+            status: SUPPLIER_PO_STATUSES,
+            createdAt: {
+              gte: startDate,
+              lt: endDate,
+            },
+          },
+        }),
+        this.prisma.payment.findMany({
+          where: {
+            businessId,
+            supplierId,
+            status: { in: ACTIVE_PAYMENT_STATUSES },
+            paymentDate: { gte: startDate, lt: endDate },
+          },
+        }),
+        this.prisma.purchaseReturn.findMany({
+          where: {
+            businessId,
+            supplierId,
+            status: 'APPROVED',
+            approvedAt: { gte: startDate, lt: endDate },
+          },
+        }),
+        this.prisma.purchaseOrder.aggregate({
+          where: {
+            businessId,
+            supplierId,
+            status: SUPPLIER_PO_STATUSES,
+            createdAt: { lt: startDate },
+          },
+          _sum: { totalAmount: true },
+        }),
+        this.prisma.payment.aggregate({
+          where: {
+            businessId,
+            supplierId,
+            status: { in: ACTIVE_PAYMENT_STATUSES },
+            paymentDate: { lt: startDate },
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.purchaseReturn.aggregate({
+          where: {
+            businessId,
+            supplierId,
+            status: 'APPROVED',
+            approvedAt: { lt: startDate },
+          },
+          _sum: { totalReturnAmount: true },
+        }),
+      ]);
 
-    const purchases = purchaseOrders.reduce((sum, po) => sum + po.totalAmount, 0);
-
-    // Get payments
-    const payments = await this.prisma.payment.findMany({
-      where: {
-        supplierId,
-        createdAt: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
-    });
-
-    const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0);
+    const purchases = roundMoney(purchaseOrders.reduce((sum, po) => sum + po.totalAmount, 0));
+    const totalPayments = roundMoney(payments.reduce((sum, p) => sum + p.amount, 0));
+    const totalReturns = roundMoney(returns.reduce((sum, ret) => sum + ret.totalReturnAmount, 0));
+    const openingBalance = roundMoney(
+      (supplier.openingBalance || 0) +
+        (priorPurchases._sum.totalAmount || 0) -
+        (priorPayments._sum.amount || 0) -
+        (priorReturns._sum.totalReturnAmount || 0),
+    );
 
     // Build invoice list
     const invoices: {
@@ -482,17 +535,26 @@ export class SupplierService {
       invoices.push({
         date: po.createdAt,
         invoiceNumber: (po as any).orderNumber || (po as any).poNumber || po.id,
-        amount: po.totalAmount,
+        amount: roundMoney(po.totalAmount),
         type: 'PURCHASE',
       });
     });
 
     payments.forEach((p) => {
       invoices.push({
-        date: p.createdAt,
+        date: p.paymentDate,
         invoiceNumber: (p as any).paymentNumber || p.id,
-        amount: p.amount,
+        amount: roundMoney(p.amount),
         type: 'PAYMENT',
+      });
+    });
+
+    returns.forEach((ret) => {
+      invoices.push({
+        date: ret.approvedAt || ret.updatedAt,
+        invoiceNumber: ret.returnNumber,
+        amount: -roundMoney(ret.totalReturnAmount),
+        type: 'RETURN',
       });
     });
 
@@ -506,7 +568,8 @@ export class SupplierService {
       openingBalance,
       purchases,
       payments: totalPayments,
-      closingBalance: openingBalance + purchases - totalPayments,
+      returns: totalReturns,
+      closingBalance: roundMoney(openingBalance + purchases - totalPayments - totalReturns),
       invoices,
     };
   }
@@ -529,29 +592,43 @@ export class SupplierService {
   /**
    * Calculate total purchases from supplier
    */
-  private async _calculateSupplierPurchases(supplierId: string): Promise<number> {
+  private async _calculateSupplierPurchases(
+    businessId: string,
+    supplierId: string,
+  ): Promise<number> {
     const result = await this.prisma.purchaseOrder.aggregate({
-      where: { supplierId },
+      where: { businessId, supplierId, status: SUPPLIER_PO_STATUSES },
       _sum: {
         totalAmount: true,
       },
     });
 
-    return result._sum.totalAmount || 0;
+    return roundMoney(result._sum.totalAmount || 0);
   }
 
   /**
    * Calculate total payments to supplier
    */
-  private async _calculateSupplierPayments(supplierId: string): Promise<number> {
+  private async _calculateSupplierPayments(
+    businessId: string,
+    supplierId: string,
+  ): Promise<number> {
     const result = await this.prisma.payment.aggregate({
-      where: { supplierId },
+      where: { businessId, supplierId, status: { in: ACTIVE_PAYMENT_STATUSES } },
       _sum: {
         amount: true,
       },
     });
 
-    return result._sum.amount || 0;
+    return roundMoney(result._sum.amount || 0);
+  }
+
+  private async _calculateSupplierReturns(businessId: string, supplierId: string): Promise<number> {
+    const result = await this.prisma.purchaseReturn.aggregate({
+      where: { businessId, supplierId, status: 'APPROVED' },
+      _sum: { totalReturnAmount: true },
+    });
+    return roundMoney(result._sum.totalReturnAmount || 0);
   }
 
   /**
@@ -561,13 +638,16 @@ export class SupplierService {
     supplier: any,
     contacts: any[],
     address: any,
-    financials?: { totalPurchased: number; totalPaid: number },
+    financials?: { totalPurchased: number; totalPaid: number; totalReturned: number },
   ): SupplierResponseDto {
-    const totalPurchased = financials?.totalPurchased || 0;
-    const totalPaid = financials?.totalPaid || 0;
-    const openingBalance = supplier.openingBalance || 0;
+    const totalPurchased = roundMoney(financials?.totalPurchased || 0);
+    const totalPaid = roundMoney(financials?.totalPaid || 0);
+    const totalReturned = roundMoney(financials?.totalReturned || 0);
+    const openingBalance = roundMoney(supplier.openingBalance || 0);
     const creditLimit = supplier.creditLimit || 0;
-    const outstandingBalance = openingBalance + totalPurchased - totalPaid;
+    const outstandingBalance = roundMoney(
+      openingBalance + totalPurchased - totalPaid - totalReturned,
+    );
     const creditUtilization = creditLimit > 0 ? (outstandingBalance / creditLimit) * 100 : 0;
 
     return {
@@ -607,6 +687,7 @@ export class SupplierService {
       openingBalance,
       totalPurchased,
       totalPaid,
+      totalReturned,
       outstandingBalance,
       creditUtilization: Math.round(creditUtilization * 100) / 100,
       isActive: supplier.isActive,

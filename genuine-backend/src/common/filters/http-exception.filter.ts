@@ -15,7 +15,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const errorResponse = {
       statusCode: status,
       timestamp: new Date().toISOString(),
-      path: request.url,
+      path: request.path,
       method: request.method,
       message:
         typeof exceptionResponse === 'string'
@@ -26,7 +26,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       ...(typeof exceptionResponse === 'object' && exceptionResponse),
     };
 
-    this.logger.error(`${request.method} ${request.url} ${status}`, JSON.stringify(errorResponse));
+    // Exception payloads can contain user supplied notes or identifiers. Keep them
+    // in the HTTP response when intentionally safe, but never duplicate them to logs.
+    this.logger.error(`${request.method} ${request.path} ${status}`);
 
     response.status(status).json(errorResponse);
   }

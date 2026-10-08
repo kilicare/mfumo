@@ -33,10 +33,18 @@ export class UpdateProductDto {
   @IsOptional() @IsString() brandId?: string | null;
   @IsOptional() @IsString() supplierId?: string | null;
 
-  @IsOptional() @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 }) @Min(0) buyingPrice?: number;
-  @IsOptional() @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 }) @Min(0) sellingPrice?: number;
-  @IsOptional() @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 }) @Min(0) wholesalePrice?:
-    number | null;
+  @IsOptional()
+  @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 })
+  @Min(0)
+  buyingPrice?: number;
+  @IsOptional()
+  @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 })
+  @Min(0)
+  sellingPrice?: number;
+  @IsOptional()
+  @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 })
+  @Min(0)
+  wholesalePrice?: number | null;
 
   @IsOptional() @IsString() defaultUnitId?: string;
   @IsOptional()

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Bell, ChevronDown, CircleDollarSign, Eye, FileBarChart2, HelpCircle, LayoutDashboard, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, ShoppingCart, Store, Truck, UserRound, UsersRound, Warehouse, X, Settings2, Receipt, ImagePlus, Trash2, Loader2 } from 'lucide-react';
+import { Bell, ChevronDown, CircleDollarSign, Eye, FileBarChart2, LayoutDashboard, LifeBuoy, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, ShoppingCart, Store, Truck, UserRound, UsersRound, Warehouse, X, Settings2, Receipt, ImagePlus, Trash2, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { authAPI, getApiError } from '@/lib/api';
 import { notify } from '@/components/ui/AppToaster';
@@ -26,6 +26,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [collapsedNavGroups, setCollapsedNavGroups] = useState<Record<string, boolean>>({});
   const [isDesktop, setIsDesktop] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -189,7 +190,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const navItems = [
     { label: 'Overview', href: '/dashboard', icon: LayoutDashboard, active: pathname === '/dashboard' },
-    { label: 'Sales', href: '#', icon: ShoppingCart, active: false, comingSoon: true },
+    { label: 'Sales', href: user.permissions.includes('sales.view') ? '/dashboard/sales/invoices' : '/dashboard/sales/invoices/new', icon: ShoppingCart, active: pathname.startsWith('/dashboard/sales'), comingSoon: !user.permissions.some((permission) => permission === 'sales.view' || permission === 'sales.create') },
     { label: 'Products', href: '/dashboard/products', icon: Package, active: pathname.startsWith('/dashboard/products') },
     { label: 'Inventory', href: '#', icon: Warehouse, active: false, comingSoon: true },
     { label: 'Purchases', href: '/dashboard/purchases', icon: Truck, active: pathname.startsWith('/dashboard/purchases') },
@@ -199,20 +200,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { label: 'Expenses', href: '#', icon: Receipt, active: false, comingSoon: true },
     { label: 'Reports & Analytics', href: '#', icon: FileBarChart2, active: false, comingSoon: true },
     { label: 'Settings', href: '/dashboard/security', icon: Settings2, active: pathname.startsWith('/dashboard/security') },
+    { label: 'Help & feedback', href: '/dashboard/help-feedback', icon: LifeBuoy, active: pathname.startsWith('/dashboard/help-feedback') },
   ];
   const navGroups = [
     { label: 'Workspace', items: navItems.filter(({ label }) => label === 'Overview') },
     { label: 'Operations', items: navItems.filter(({ label }) => ['Sales', 'Products', 'Inventory', 'Purchases', 'Customers', 'Suppliers'].includes(label)) },
     { label: 'Finance', items: navItems.filter(({ label }) => ['Payments & Finance', 'Expenses'].includes(label)) },
     { label: 'Insights', items: navItems.filter(({ label }) => label === 'Reports & Analytics') },
-    { label: 'Account', items: navItems.filter(({ label }) => label === 'Settings') },
+    { label: 'Account', items: navItems.filter(({ label }) => ['Settings', 'Help & feedback'].includes(label)) },
   ];
+  const currentNavItem = navItems.find(({ active }) => active);
+  const currentNavGroup = navGroups.find(({ items }) => items.some(({ active }) => active))?.label || 'Workspace';
   const initials = `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase() || user.email[0].toUpperCase();
 
   return (
     <div className="min-h-screen min-w-0 bg-[#f5f6f2] lg:flex">
       {mobileMenuOpen ? <button aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} className="fixed inset-0 z-30 bg-black/40 lg:hidden" /> : null}
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[270px] flex-col overflow-hidden bg-[#20211f] px-5 py-6 text-white transition-all duration-200 lg:sticky lg:top-0 lg:h-screen lg:self-start lg:translate-x-0 ${sidebarCollapsed ? 'lg:w-[84px] lg:px-3' : 'lg:w-[270px]'} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[270px] shrink-0 flex-col overflow-hidden border-r border-white/[0.06] bg-[#20211f] px-5 py-6 text-white shadow-2xl shadow-black/20 transition-all duration-200 lg:sticky lg:top-0 lg:h-screen lg:self-start lg:shadow-none lg:translate-x-0 ${sidebarCollapsed ? 'lg:w-[84px] lg:px-3' : 'lg:w-[270px]'} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className={`flex shrink-0 items-center ${compactSidebar ? 'justify-center lg:px-0' : 'justify-between px-2'}`}>
           <Link href="/dashboard" className="flex min-w-0 items-center" aria-label="Genuine dashboard" title="Genuine dashboard">
             {compactSidebar ? <Image src="/GGENUINE_FULL_BRAND_PACKAGE/logos/svg/logo-symbol-monochrome-white.svg" alt="G Genuine" width={64} height={64} priority className="h-10 w-10" /> : <Image src="/GGENUINE_FULL_BRAND_PACKAGE/logos/svg/logo-horizontal-white.svg" alt="G Genuine — Trust, Build, Grow" width={900} height={220} priority className="h-auto w-[180px]" />}
@@ -225,22 +229,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className={`mt-9 shrink-0 rounded-xl border border-white/10 bg-white/[0.04] ${compactSidebar ? 'flex justify-center p-2.5' : 'px-3.5 py-3'}`} title={compactSidebar ? user.businessName || 'Your business' : undefined}>
           {compactSidebar ? <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#c9e600] text-sm font-bold text-[#20211f]"><Store size={17} /></span> : <><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/40">Current workspace</p><p className="mt-1.5 truncate text-sm font-medium">{user.businessName || 'Your business'}</p></>}
         </div>
-        <nav aria-label="Main navigation" className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pb-3">
+        <nav aria-label="Main navigation" className="dashboard-sidebar-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pb-3">
           {navGroups.map(({ label: groupLabel, items }, groupIndex) => (
             <section key={groupLabel} aria-label={`${groupLabel} navigation`}>
               {compactSidebar ? (
                 groupIndex > 0 ? <div aria-hidden="true" className="mx-2 mb-2 border-t border-[#d8b454]/20" /> : null
               ) : (
-                <h2 className={`mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[#d8b454] ${groupIndex === 0 ? 'mt-1' : ''}`}>{groupLabel}</h2>
+                <button
+                  type="button"
+                  aria-expanded={!collapsedNavGroups[groupLabel]}
+                  aria-controls={`sidebar-group-${groupLabel.toLowerCase().replace(/\s+/g, '-')}`}
+                  onClick={() => setCollapsedNavGroups((groups) => ({ ...groups, [groupLabel]: !groups[groupLabel] }))}
+                  className={`mb-1.5 flex min-h-8 w-full items-center justify-between rounded-lg px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[#d8b454] transition hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#d8f04b] ${groupIndex === 0 ? 'mt-1' : ''}`}
+                >
+                  <span>{groupLabel}</span>
+                  <ChevronDown size={13} aria-hidden="true" className={`transition-transform ${collapsedNavGroups[groupLabel] ? '-rotate-90' : ''}`} />
+                </button>
               )}
-              <div className="space-y-1">
+              <div id={`sidebar-group-${groupLabel.toLowerCase().replace(/\s+/g, '-')}`} className={`space-y-1 ${!compactSidebar && collapsedNavGroups[groupLabel] ? 'hidden' : ''}`}>
                 {items.map(({ label, href, icon: Icon, active, comingSoon }) => (
                   comingSoon ? (
-                    <button key={label} type="button" disabled aria-label={`${label} coming soon`} title={compactSidebar ? `${label} (coming soon)` : undefined} className={`flex w-full cursor-not-allowed items-center rounded-xl py-2.5 text-left text-sm text-white/35 ${compactSidebar ? 'justify-center px-0' : 'gap-3 px-3'}`}>
-                      <Icon size={17} strokeWidth={1.8} />{!compactSidebar ? <>{label}<span className="ml-auto text-[9px] uppercase tracking-wider text-white/30">Soon</span></> : null}
+                    <button key={label} type="button" disabled aria-label={`${label} is not available yet`} title={`${label} is coming soon and is not available yet.`} className={`flex min-h-10 w-full cursor-not-allowed items-center rounded-xl py-2.5 text-left text-sm text-white/55 ${compactSidebar ? 'justify-center px-0' : 'gap-3 px-3'}`}>
+                      <Icon size={17} strokeWidth={1.8} />{!compactSidebar ? <>{label}<span className="ml-auto rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white/55">Soon</span></> : null}
                     </button>
                   ) : (
-                    <Link key={label} href={href} onClick={() => setMobileMenuOpen(false)} aria-label={compactSidebar ? label : undefined} title={compactSidebar ? label : undefined} className={`flex items-center rounded-xl py-2.5 text-sm transition ${compactSidebar ? 'justify-center px-0' : 'gap-3 px-3'} ${active ? 'bg-[#d8f04b] font-semibold text-[#20211f]' : 'text-white/70 hover:bg-white/[0.07] hover:text-white'}`}>
+                    <Link key={label} href={href} onClick={() => setMobileMenuOpen(false)} aria-current={active ? 'page' : undefined} aria-label={compactSidebar ? label : undefined} title={compactSidebar ? label : undefined} className={`relative flex min-h-10 items-center rounded-xl py-2.5 text-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#d8f04b] ${compactSidebar ? 'justify-center px-0' : 'gap-3 px-3'} ${active ? "bg-[#30382a] font-semibold text-[#e7f88e] shadow-inner shadow-white/[0.03] before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[3px] before:rounded-full before:bg-[#d8f04b] before:content-['']" : 'text-white/75 hover:bg-white/[0.07] hover:text-white'}`}>
                       <Icon size={17} strokeWidth={1.8} />{!compactSidebar ? label : null}
                     </Link>
                   )
@@ -249,28 +262,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </section>
           ))}
         </nav>
-        <div className={`mt-4 shrink-0 rounded-2xl border border-[#d8f04b]/20 bg-[radial-gradient(ellipse_at_top_left,_rgba(216,240,75,0.16),_transparent_65%),linear-gradient(145deg,_#1b3329,_#171a18_78%)] shadow-lg shadow-black/20 ${compactSidebar ? 'p-2' : 'p-3.5'}`}>
-          {user.permissions?.includes('purchases.create') ? (
-            compactSidebar ? (
-              <Link href="/dashboard/purchases/orders/new" aria-label="Create purchase order" title="Keep stock ready — create purchase order" className="grid h-10 w-full place-items-center rounded-xl bg-[#d8f04b] text-[#20211f] transition hover:bg-[#e6f88a]"><Truck size={18} /></Link>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 text-xs font-bold text-white/90"><span className="grid h-7 w-7 place-items-center rounded-lg bg-[#d8f04b]/15 text-[#d8f04b]"><Truck size={15} /></span>Keep stock ready</div>
-                <p className="mt-2 text-[11px] leading-4 text-white/60">Restock before popular products run out and you miss a sale.</p>
-                <Link href="/dashboard/purchases/orders/new" className="mt-3 flex min-h-9 items-center justify-between gap-2 rounded-lg bg-[#d8f04b] px-3 text-[11px] font-bold text-[#20211f] transition hover:bg-[#e6f88a]">Create purchase order<ArrowUpRight size={14} /></Link>
-              </>
-            )
-          ) : (
-            compactSidebar ? <HelpCircle className="mx-auto text-[#d8f04b]" size={18} aria-label="Workspace help" /> : <><div className="flex items-center gap-2 text-xs font-semibold text-white/80"><HelpCircle size={15} className="text-[#d8f04b]" />Need a hand?</div><p className="mt-2 text-[11px] leading-5 text-white/50">Your workspace is ready. More tools will appear as modules are added.</p></>
-          )}
-        </div>
       </aside>
 
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex h-[70px] min-w-0 items-center justify-between gap-2 border-b border-[#e8e9e5] bg-white/90 px-3 backdrop-blur sm:px-7 lg:px-10">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <button type="button" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation" className="rounded-lg p-2 text-[#4f544c] hover:bg-[#f1f2ee] lg:hidden"><Menu size={19} /></button>
-            <div className="min-w-0"><p className="truncate text-xs text-[#858880]">Workspace / <span className="text-[#343832]">Overview</span></p><p className="mt-0.5 truncate text-sm font-semibold text-[#20231f]">Business overview</p></div>
+            <div className="min-w-0"><p className="truncate text-xs text-[#858880]">Workspace / <span className="text-[#343832]">{currentNavGroup}</span></p><p className="mt-0.5 truncate text-sm font-semibold text-[#20231f]">{currentNavItem?.label || 'Business overview'}</p></div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-5">
             <ThemeToggle />

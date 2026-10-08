@@ -3,6 +3,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import cors from 'cors';
 import compression from 'compression';
 import express from 'express';
+import type { ErrorRequestHandler } from 'express';
 import { AppModule } from './app.module';
 import { LoggerService } from './common/logger/logger.service';
 
@@ -16,6 +17,19 @@ async function bootstrap() {
   // Allow a bounded batch while keeping request size finite.
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+  const bodyParserErrorHandler: ErrorRequestHandler = (error, _request, response, next) => {
+    const type = (error as { type?: unknown } | null)?.type;
+    if (type === 'entity.parse.failed') {
+      response.status(400).json({ statusCode: 400, message: 'Malformed JSON request body' });
+      return;
+    }
+    if (type === 'entity.too.large') {
+      response.status(413).json({ statusCode: 413, message: 'Request body is too large' });
+      return;
+    }
+    next(error);
+  };
+  app.use(bodyParserErrorHandler);
 
   const logger = new LoggerService();
 

@@ -7,6 +7,7 @@ import {
   Min,
   IsDate,
   IsDateString,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -17,34 +18,36 @@ export class GRNItemUpdateDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   receivedQuantity?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   acceptedQuantity?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   rejectedQuantity?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   damageQuantity?: number;
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   notes?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   batchNumber?: string;
 
   @IsOptional()
@@ -66,17 +69,21 @@ export class UpdateGRNDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   vehicleRegistration?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(160)
   driverName?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   waybillNumber?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   notes?: string;
 }

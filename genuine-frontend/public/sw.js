@@ -1,6 +1,6 @@
 /* Genuine app shell worker. Business/API responses and mutations are never cached or replayed. */
 const CACHE_PREFIX = 'genuine-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v3`;
 const OFFLINE_URL = '/offline';
 const PRECACHE_URLS = [
   OFFLINE_URL,
@@ -62,6 +62,18 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
+    if (isNextAsset) {
+      // Development chunk URLs are stable across edits. Fetch the latest app code
+      // first so an installed PWA cannot keep serving an obsolete interactive flow.
+      try {
+        const response = await fetch(new Request(request, { cache: 'no-cache' }));
+        if (response.ok && response.type === 'basic') await cache.put(request, response.clone());
+        return response;
+      } catch {
+        return (await cache.match(request)) || new Response('This resource is not available offline.', { status: 503 });
+      }
+    }
+
     const cached = await cache.match(request);
     if (cached) return cached;
     try {

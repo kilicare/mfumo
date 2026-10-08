@@ -39,6 +39,16 @@ import { SalesService } from './sales.service';
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}
 
+  @Get('options')
+  @RequirePermission('sales.view', 'sales.create', 'sales.edit')
+  @ApiOperation({
+    summary:
+      'Get active locations, salespeople and tax settings for sales filters and invoice entry',
+  })
+  invoiceOptions(@Business() businessId: string) {
+    return this.salesService.getInvoiceOptions(businessId);
+  }
+
   @Post('invoices')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermission('sales.create')

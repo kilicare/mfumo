@@ -59,6 +59,8 @@ model Business {
   users                 User[]
   notificationTemplates NotificationTemplate[]
   notifications         Notification[]
+  feedbackSubmissions   FeedbackSubmission[]
+  feedbackMessages      FeedbackMessage[]
   emailConfig           EmailConfig?
   smsConfig             SMSConfig?
 
@@ -95,6 +97,8 @@ model User {
   rejectedExpenses       Expense[]               @relation("ExpenseRejectedBy")
   inAppNotifications     InAppNotification[]
   notificationRecipients NotificationRecipient[]
+  feedbackSubmissions    FeedbackSubmission[]    @relation("FeedbackSubmittedBy")
+  feedbackMessages       FeedbackMessage[]       @relation("FeedbackMessageSender")
 
   @@unique([businessId, email])
   @@index([businessId])
@@ -491,7 +495,7 @@ model PurchaseOrder {
   business             Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
   poNumber             String
   idempotencyKey       String?
-  requestFingerprint    String?
+  requestFingerprint   String?
   supplierId           String
   supplier             Supplier            @relation(fields: [supplierId], references: [id])
   locationId           String
@@ -504,6 +508,7 @@ model PurchaseOrder {
   subtotal             Float
   shippingCost         Float               @default(0)
   taxAmount            Float               @default(0)
+  taxRecoverable       Boolean             @default(true)
   totalAmount          Float
   orderDate            DateTime
   expectedDeliveryDate DateTime?
@@ -547,6 +552,8 @@ model GoodsReceivedNote {
   businessId          String
   business            Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
   grnNumber           String
+  idempotencyKey      String?
+  requestFingerprint  String?
   purchaseOrderId     String
   purchaseOrder       PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
   status              String        @default("RECEIVED") // RECEIVED, ACCEPTED, REJECTED
@@ -561,6 +568,7 @@ model GoodsReceivedNote {
   updatedAt           DateTime      @updatedAt
 
   @@unique([businessId, grnNumber])
+  @@unique([businessId, idempotencyKey])
   @@index([businessId])
   @@index([purchaseOrderId])
 }
@@ -584,25 +592,28 @@ model GRNItem {
 }
 
 model PurchaseReturn {
-  id                String               @id @default(uuid())
-  businessId        String
-  business          Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  returnNumber      String
-  purchaseOrderId   String
-  purchaseOrder     PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
-  supplierId        String
-  supplier          Supplier             @relation(fields: [supplierId], references: [id])
-  status            String               @default("DRAFT") // DRAFT, APPROVED, REJECTED, COMPLETED
-  items             PurchaseReturnItem[]
-  totalReturnAmount Float
-  approvedBy        String?
-  approvedAt        DateTime?
-  notes             String?
-  createdBy         String
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  id                 String               @id @default(uuid())
+  businessId         String
+  business           Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  returnNumber       String
+  idempotencyKey     String?
+  requestFingerprint String?
+  purchaseOrderId    String
+  purchaseOrder      PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
+  supplierId         String
+  supplier           Supplier             @relation(fields: [supplierId], references: [id])
+  status             String               @default("DRAFT") // DRAFT, APPROVED, REJECTED, COMPLETED
+  items              PurchaseReturnItem[]
+  totalReturnAmount  Float
+  approvedBy         String?
+  approvedAt         DateTime?
+  notes              String?
+  createdBy          String
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   @@unique([businessId, returnNumber])
+  @@unique([businessId, idempotencyKey])
   @@index([businessId])
   @@index([purchaseOrderId])
 }
@@ -980,6 +991,7 @@ model Payment {
   voidedAt               DateTime?
   voidReason             String?
   idempotencyKey         String?
+  requestFingerprint     String?
   processedAt            DateTime       @default(now())
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
@@ -1143,14 +1155,15 @@ model AuditLog {
 }
 
 model UserSession {
-  id               String   @id @default(cuid())
-  userId           String
-  refreshTokenHash String
-  ipAddress        String?
-  userAgent        String?
-  expiresAt        DateTime
-  createdAt        DateTime @default(now())
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String   @id @default(cuid())
+  userId            String
+  refreshTokenHash  String
+  ipAddress         String?
+  userAgent         String?
+  expiresAt         DateTime
+  absoluteExpiresAt DateTime
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
@@ -1249,6 +1262,44 @@ model InAppNotification {
 
   @@unique([notificationId, userId])
   @@index([userId, isRead, createdAt])
+}
+
+model FeedbackSubmission {
+  id             String            @id @default(cuid())
+  businessId     String
+  submittedById  String?
+  submitterName  String
+  submitterEmail String
+  category       String
+  subject        String
+  message        String            @db.Text
+  pagePath       String?
+  status         String            @default("OPEN")
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  business       Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  submittedBy    User?             @relation("FeedbackSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  messages       FeedbackMessage[]
+
+  @@index([businessId, status, createdAt])
+  @@index([businessId, submittedById, createdAt])
+}
+
+model FeedbackMessage {
+  id           String             @id @default(cuid())
+  businessId   String
+  submissionId String
+  senderId     String?
+  senderType   String
+  senderName   String
+  senderEmail  String
+  body         String             @db.Text
+  createdAt    DateTime           @default(now())
+  business     Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  submission   FeedbackSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  sender       User?              @relation("FeedbackMessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, submissionId, createdAt])
 }
 
 model EmailConfig {

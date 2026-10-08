@@ -35,9 +35,10 @@ export class SupplierResponseDto {
   creditLimit: number;
   paymentTerms: string;
   openingBalance: number;
-  totalPurchased: number; // Sum of all PO amounts
-  totalPaid: number; // Sum of all payments
-  outstandingBalance: number; // openingBalance + totalPurchased - totalPaid
+  totalPurchased: number; // Non-draft, non-cancelled purchase orders
+  totalPaid: number; // Active supplier payments
+  totalReturned: number; // Approved purchase returns
+  outstandingBalance: number; // openingBalance + totalPurchased - totalPaid - totalReturned
   creditUtilization: number; // percentage
   isActive: boolean;
   lastPurchaseDate?: Date;

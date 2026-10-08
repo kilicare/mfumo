@@ -12,6 +12,7 @@ import { v4 as uuid } from 'uuid';
 import { PrismaService } from '../database/prisma.service';
 import { LoggerService } from '../common/logger/logger.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { durationSeconds } from './session-lifetime';
 import {
   RegisterDto,
   LoginDto,
@@ -150,20 +151,25 @@ export class AuthService {
           where: { id: user.id },
           include: { userRoles: { include: { role: { include: { permissions: true } } } } },
         });
+        const sessionId = uuid();
         const tokens = await this._generateTokens(
           user.id,
           user.email,
           business.id,
           userWithDetails,
+          sessionId,
         );
+        const now = new Date();
+        const absoluteExpiresAt = this._sessionAbsoluteExpiry(now);
 
         await tx.userSession.create({
           data: {
-            id: uuid(),
+            id: sessionId,
             userId: user.id,
             refreshTokenHash: await bcrypt.hash(tokens.refreshToken, 10),
             ipAddress,
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            expiresAt: this._sessionIdleExpiry(now, absoluteExpiresAt),
+            absoluteExpiresAt,
           },
         });
 
@@ -242,16 +248,26 @@ export class AuthService {
     });
     if (refreshedUser) Object.assign(user, refreshedUser);
 
-    const tokens = await this._generateTokens(user.id, user.email, user.businessId, user);
+    const sessionId = uuid();
+    const tokens = await this._generateTokens(
+      user.id,
+      user.email,
+      user.businessId,
+      user,
+      sessionId,
+    );
 
     const refreshTokenHash = await bcrypt.hash(tokens.refreshToken, 10);
+    const now = new Date();
+    const absoluteExpiresAt = this._sessionAbsoluteExpiry(now);
     await this.prisma.userSession.create({
       data: {
-        id: uuid(),
+        id: sessionId,
         userId: user.id,
         refreshTokenHash,
         ipAddress,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        expiresAt: this._sessionIdleExpiry(now, absoluteExpiresAt),
+        absoluteExpiresAt,
       },
     });
 
@@ -282,11 +298,12 @@ export class AuthService {
   async refreshToken(
     dto: RefreshTokenDto,
     userId: string,
-  ): Promise<{ accessToken: string; expiresIn: number }> {
+  ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
     this.logger.log(`[AUTH] Refresh token attempt for user: ${userId}`);
 
+    let payload: any;
     try {
-      const payload = await this.jwtService.verifyAsync(dto.refreshToken, {
+      payload = await this.jwtService.verifyAsync(dto.refreshToken, {
         secret: this.config.get('JWT_REFRESH_SECRET'),
       });
       if (payload.sub !== userId || payload.type !== 'refresh') {
@@ -297,30 +314,26 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
+    const now = new Date();
     const sessions = await this.prisma.userSession.findMany({
       where: {
         userId,
-        expiresAt: {
-          gt: new Date(),
-        },
+        ...(typeof payload.sid === 'string' ? { id: payload.sid } : {}),
+        expiresAt: { gt: now },
+        absoluteExpiresAt: { gt: now },
       },
-      select: { refreshTokenHash: true },
+      select: { id: true, refreshTokenHash: true, absoluteExpiresAt: true },
     });
 
-    if (!sessions.length) {
-      throw new UnauthorizedException('Session expired or not found');
-    }
-
-    let isTokenValid = false;
+    let matchedSession: (typeof sessions)[number] | undefined;
     for (const session of sessions) {
       if (await bcrypt.compare(dto.refreshToken, session.refreshTokenHash)) {
-        isTokenValid = true;
+        matchedSession = session;
         break;
       }
     }
-    if (!isTokenValid) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+    if (!matchedSession)
+      throw new UnauthorizedException('Session expired or refresh token already used');
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -341,18 +354,62 @@ export class AuthService {
       throw new UnauthorizedException('User account is deactivated');
     }
 
-    const accessToken = this.jwtService.sign({
-      sub: user.id,
-      email: user.email,
-      businessId: user.businessId,
-      permissions: user.userRoles.flatMap((ur) => ur.role.permissions).map((p) => p.key),
-    });
+    const accessLifetime = durationSeconds(this.config, 'JWT_ACCESS_EXPIRATION', '15m');
+    const nowAfterLookup = new Date();
+    const absoluteRemaining = Math.floor(
+      (matchedSession.absoluteExpiresAt.getTime() - nowAfterLookup.getTime()) / 1000,
+    );
+    if (absoluteRemaining <= 0)
+      throw new UnauthorizedException('Session reached its maximum lifetime');
+    const accessToken = this.jwtService.sign(
+      {
+        sub: user.id,
+        email: user.email,
+        businessId: user.businessId,
+        permissions: user.userRoles.flatMap((ur) => ur.role.permissions).map((p) => p.key),
+      },
+      { secret: this.config.get('JWT_SECRET'), expiresIn: accessLifetime },
+    );
+    const refreshLifetime = Math.min(
+      durationSeconds(this.config, 'JWT_REFRESH_EXPIRATION', '30d'),
+      absoluteRemaining,
+    );
+    const refreshToken = this.jwtService.sign(
+      {
+        sub: user.id,
+        email: user.email,
+        businessId: user.businessId,
+        type: 'refresh',
+        sid: matchedSession.id,
+      },
+      { secret: this.config.get('JWT_REFRESH_SECRET'), expiresIn: refreshLifetime },
+    );
+    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+    const idleExpiry = this._sessionIdleExpiry(nowAfterLookup, matchedSession.absoluteExpiresAt);
+    const rotated = await this.prisma.$transaction((tx) =>
+      tx.userSession.updateMany({
+        where: {
+          id: matchedSession!.id,
+          userId,
+          refreshTokenHash: matchedSession!.refreshTokenHash,
+          expiresAt: { gt: nowAfterLookup },
+          absoluteExpiresAt: { gt: nowAfterLookup },
+        },
+        data: { refreshTokenHash, expiresAt: idleExpiry },
+      }),
+    );
+    if (rotated.count !== 1) {
+      throw new UnauthorizedException(
+        'Refresh token already used; sign in again if your session expired',
+      );
+    }
 
     this.logger.log(`[AUTH] Token refreshed for user: ${userId}`);
 
     return {
       accessToken,
-      expiresIn: 15 * 60,
+      refreshToken,
+      expiresIn: accessLifetime,
     };
   }
 
@@ -524,10 +581,18 @@ export class AuthService {
     });
   }
 
-  private async _generateTokens(userId: string, email: string, businessId: string, user: any) {
+  private async _generateTokens(
+    userId: string,
+    email: string,
+    businessId: string,
+    user: any,
+    sessionId: string,
+  ) {
     const permissions = user.userRoles
       .flatMap((ur: any) => ur.role.permissions)
       .map((p: any) => p.key);
+    const accessLifetime = durationSeconds(this.config, 'JWT_ACCESS_EXPIRATION', '15m');
+    const refreshLifetime = durationSeconds(this.config, 'JWT_REFRESH_EXPIRATION', '30d');
 
     const accessToken = this.jwtService.sign(
       {
@@ -538,7 +603,7 @@ export class AuthService {
       },
       {
         secret: this.config.get('JWT_SECRET'),
-        expiresIn: this.config.get('JWT_ACCESS_EXPIRATION') || '15m',
+        expiresIn: accessLifetime,
       },
     );
 
@@ -548,18 +613,34 @@ export class AuthService {
         email,
         businessId,
         type: 'refresh',
+        sid: sessionId,
       },
       {
         secret: this.config.get('JWT_REFRESH_SECRET'),
-        expiresIn: this.config.get('JWT_REFRESH_EXPIRATION') || '7d',
+        expiresIn: refreshLifetime,
       },
     );
 
     return {
       accessToken,
       refreshToken,
-      expiresIn: 15 * 60,
+      expiresIn: accessLifetime,
     };
+  }
+
+  private _sessionAbsoluteExpiry(now: Date): Date {
+    return new Date(
+      now.getTime() + durationSeconds(this.config, 'SESSION_ABSOLUTE_TIMEOUT', '30d') * 1000,
+    );
+  }
+
+  private _sessionIdleExpiry(now: Date, absoluteExpiresAt: Date): Date {
+    return new Date(
+      Math.min(
+        now.getTime() + durationSeconds(this.config, 'SESSION_IDLE_TIMEOUT', '7d') * 1000,
+        absoluteExpiresAt.getTime(),
+      ),
+    );
   }
 
   private async _createDefaultRolesAndPermissions(

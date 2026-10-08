@@ -66,6 +66,15 @@ export class AnalyticsController {
     );
   }
 
+  @Get('sales/outstanding-receivables')
+  @RequirePermission('reports.view')
+  @ApiOperation({ summary: 'Get customer and invoice balances due' })
+  outstandingReceivables(@Business() businessId: string, @UserId() userId: string) {
+    return this.run('sales.outstanding-receivables', businessId, userId, {}, () =>
+      this.analytics.getOutstandingReceivables(businessId),
+    );
+  }
+
   @Get('dashboard/inventory')
   @RequirePermission('reports.view')
   inventoryDashboard(

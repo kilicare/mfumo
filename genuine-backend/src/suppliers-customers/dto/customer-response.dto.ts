@@ -33,9 +33,10 @@ export class CustomerResponseDto {
   creditLimit: number;
   paymentTerms: string;
   openingBalance: number;
-  totalSales: number; // Sum of all invoice amounts
-  totalPaid: number; // Sum of all payments
-  outstandingBalance: number; // openingBalance + totalSales - totalPaid
+  totalSales: number; // Issued invoice amounts
+  totalPaid: number; // Active customer payments
+  totalReturned: number; // Received/completed sales return credits
+  outstandingBalance: number; // openingBalance + totalSales - totalPaid - totalReturned
   creditUtilization: number; // percentage
   isActive: boolean;
   lastSaleDate?: Date;

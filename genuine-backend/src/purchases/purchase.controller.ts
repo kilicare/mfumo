@@ -10,6 +10,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -29,6 +30,7 @@ import {
   PurchaseReturnResponseDto,
   PurchaseOrderFilterDto,
   CreatePurchasePaymentDto,
+  RejectGRNDto,
   PurchasePaymentResponseDto,
 } from './dto';
 
@@ -73,7 +75,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: PurchaseOrderResponseDto })
   async getPurchaseOrderById(
     @Business() businessId: string,
-    @Param('id') poId: string,
+    @Param('id', new ParseUUIDPipe()) poId: string,
   ): Promise<PurchaseOrderResponseDto> {
     return this.purchaseService.getPurchaseOrderById(businessId, poId);
   }
@@ -85,7 +87,7 @@ export class PurchaseController {
   @ApiResponse({ status: 201, type: PurchasePaymentResponseDto })
   async createPurchasePayment(
     @Business() businessId: string,
-    @Param('id') poId: string,
+    @Param('id', new ParseUUIDPipe()) poId: string,
     @UserId() userId: string,
     @Body() dto: CreatePurchasePaymentDto,
   ): Promise<PurchasePaymentResponseDto> {
@@ -98,7 +100,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: PurchaseOrderResponseDto })
   async updatePurchaseOrder(
     @Business() businessId: string,
-    @Param('id') poId: string,
+    @Param('id', new ParseUUIDPipe()) poId: string,
     @UserId() userId: string,
     @Body() dto: UpdatePurchaseOrderDto,
   ): Promise<PurchaseOrderResponseDto> {
@@ -111,7 +113,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: PurchaseOrderResponseDto })
   async patchPurchaseOrder(
     @Business() businessId: string,
-    @Param('id') poId: string,
+    @Param('id', new ParseUUIDPipe()) poId: string,
     @UserId() userId: string,
     @Body() dto: UpdatePurchaseOrderDto,
   ): Promise<PurchaseOrderResponseDto> {
@@ -124,7 +126,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: PurchaseOrderResponseDto })
   async approvePurchaseOrder(
     @Business() businessId: string,
-    @Param('id') poId: string,
+    @Param('id', new ParseUUIDPipe()) poId: string,
     @UserId() userId: string,
   ): Promise<PurchaseOrderResponseDto> {
     return this.purchaseService.approvePurchaseOrder(businessId, poId, userId);
@@ -136,7 +138,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: PurchaseOrderResponseDto })
   async cancelPurchaseOrder(
     @Business() businessId: string,
-    @Param('id') poId: string,
+    @Param('id', new ParseUUIDPipe()) poId: string,
     @UserId() userId: string,
     @Body('reason') reason?: string,
   ): Promise<PurchaseOrderResponseDto> {
@@ -178,7 +180,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: GRNResponseDto })
   async getGRNById(
     @Business() businessId: string,
-    @Param('id') grnId: string,
+    @Param('id', new ParseUUIDPipe()) grnId: string,
   ): Promise<GRNResponseDto> {
     return this.purchaseService.getGRNById(businessId, grnId);
   }
@@ -189,7 +191,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: GRNResponseDto })
   async updateGRN(
     @Business() businessId: string,
-    @Param('id') grnId: string,
+    @Param('id', new ParseUUIDPipe()) grnId: string,
     @UserId() userId: string,
     @Body() dto: UpdateGRNDto,
   ): Promise<GRNResponseDto> {
@@ -202,7 +204,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: GRNResponseDto })
   async patchGRN(
     @Business() businessId: string,
-    @Param('id') grnId: string,
+    @Param('id', new ParseUUIDPipe()) grnId: string,
     @UserId() userId: string,
     @Body() dto: UpdateGRNDto,
   ): Promise<GRNResponseDto> {
@@ -216,7 +218,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: GRNResponseDto })
   async acceptGRN(
     @Business() businessId: string,
-    @Param('id') grnId: string,
+    @Param('id', new ParseUUIDPipe()) grnId: string,
     @UserId() userId: string,
   ): Promise<GRNResponseDto> {
     return this.purchaseService.acceptGRN(businessId, grnId, userId);
@@ -229,11 +231,11 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: GRNResponseDto })
   async rejectGRN(
     @Business() businessId: string,
-    @Param('id') grnId: string,
+    @Param('id', new ParseUUIDPipe()) grnId: string,
     @UserId() userId: string,
-    @Body('reason') reason?: string,
+    @Body() dto: RejectGRNDto,
   ): Promise<GRNResponseDto> {
-    return this.purchaseService.rejectGRN(businessId, grnId, userId, reason || '');
+    return this.purchaseService.rejectGRN(businessId, grnId, userId, dto.reason);
   }
 
   // ============================================================
@@ -271,7 +273,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: PurchaseReturnResponseDto })
   async getPurchaseReturnById(
     @Business() businessId: string,
-    @Param('id') returnId: string,
+    @Param('id', new ParseUUIDPipe()) returnId: string,
   ): Promise<PurchaseReturnResponseDto> {
     return this.purchaseService.getPurchaseReturnById(businessId, returnId);
   }
@@ -282,7 +284,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: PurchaseReturnResponseDto })
   async approvePurchaseReturn(
     @Business() businessId: string,
-    @Param('id') returnId: string,
+    @Param('id', new ParseUUIDPipe()) returnId: string,
     @UserId() userId: string,
   ): Promise<PurchaseReturnResponseDto> {
     return this.purchaseService.approvePurchaseReturn(businessId, returnId, userId);
@@ -294,7 +296,7 @@ export class PurchaseController {
   @ApiResponse({ status: 200, type: PurchaseReturnResponseDto })
   async rejectPurchaseReturn(
     @Business() businessId: string,
-    @Param('id') returnId: string,
+    @Param('id', new ParseUUIDPipe()) returnId: string,
     @UserId() userId: string,
     @Body('reason') reason?: string,
   ): Promise<PurchaseReturnResponseDto> {

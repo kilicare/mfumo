@@ -30,9 +30,11 @@ export class PurchaseOrderResponseDto {
   subtotal: number;
   shippingCost: number;
   taxAmount: number;
+  taxRecoverable: boolean;
   totalAmount: number;
   totalReceived: number;
   totalPaid: number;
+  totalReturned: number;
   balanceDue: number;
   orderDate: Date;
   expectedDeliveryDate?: Date;

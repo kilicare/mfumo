@@ -18,6 +18,7 @@ export class SalesInvoiceItemResponseDto {
 export class SalesInvoiceResponseDto {
   id: string;
   businessId: string;
+  currency: string;
   invoiceNumber: string;
   customerId: string;
   customerName: string;
@@ -33,9 +34,11 @@ export class SalesInvoiceResponseDto {
   discountAmount: number;
   discountPercentage: number;
   taxableAmount: number;
+  taxPercentage: number;
   taxAmount: number;
   totalAmount: number;
   totalPaid: number;
+  returnCredits: number;
   balance: number;
   paymentTerms: string;
   attachments?: string[];
@@ -67,6 +70,7 @@ export class SalesReturnItemResponseDto {
 export class SalesReturnResponseDto {
   id: string;
   businessId: string;
+  currency: string;
   returnNumber: string;
   salesInvoiceId: string;
   invoiceNumber: string;
