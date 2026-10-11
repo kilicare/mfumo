@@ -32,7 +32,7 @@ export default function NewSalesInvoicePage() {
   const [dueDate, setDueDate] = useState('');
   const [paymentTerms, setPaymentTerms] = useState<PaymentTerms>('COD');
   const [taxPercentage, setTaxPercentage] = useState('18');
-  const [currency, setCurrency] = useState('TZS');
+  const [currency, setCurrency] = useState('');
   const [discountAmount, setDiscountAmount] = useState('0');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<Line[]>([blankLine()]);
@@ -85,7 +85,7 @@ export default function NewSalesInvoicePage() {
     }
     if (!Number.isFinite(Number(taxPercentage)) || Number(taxPercentage) < 0 || Number(taxPercentage) > 100 || hasMoreThanDecimals(Number(taxPercentage), 2)) { setError('Tax rate must be between 0 and 100 with at most two decimal places.'); return; }
     if (!Number.isFinite(Number(discountAmount)) || Number(discountAmount) < 0 || Number(discountAmount) > subtotal || hasMoreThanDecimals(Number(discountAmount), 2)) { setError('Invoice discount must be nonnegative, no more than the discounted subtotal, and use at most two decimal places.'); return; }
-    const payload: CreateSalesInvoiceInput = { customerId, locationId, invoiceDate, dueDate: dueDate || undefined, paymentTerms, items: cleanLines, discountAmount: Number(discountAmount), notes: notes.trim() || undefined };
+    const payload: CreateSalesInvoiceInput = { customerId, locationId, invoiceDate, dueDate: dueDate || undefined, paymentTerms, items: cleanLines, discountAmount: Number(discountAmount), ...(permissions.canEditSettings ? { taxPercentage: Number(taxPercentage) } : {}), notes: notes.trim() || undefined };
     setSaving(true);
     try { const created = await createInvoice(payload); notify.success(`Draft invoice ${created.invoiceNumber} created.`); router.push(`/dashboard/sales/invoices/${encodeURIComponent(created.id)}`); }
     catch (cause) { const message = getApiError(cause, 'Could not create the invoice.'); setError(message); notify.error(message); }
@@ -104,8 +104,8 @@ export default function NewSalesInvoicePage() {
         <label className="text-xs font-semibold text-[#62685d]">Invoice date<input type="date" required className={`${input} mt-1`} value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} /></label>
         <label className="text-xs font-semibold text-[#62685d]">Due date<input type="date" min={invoiceDate} className={`${input} mt-1`} value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
         <label className="text-xs font-semibold text-[#62685d]">Payment terms<select className={`${input} mt-1`} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value as PaymentTerms)}>{terms.map((term) => <option key={term}>{term}</option>)}</select></label>
-        {permissions.canDiscount ? <label className="text-xs font-semibold text-[#62685d]">Invoice discount ({currency})<input type="number" min="0" step="0.01" className={`${input} mt-1`} value={discountAmount} onChange={(e) => setDiscountAmount(e.target.value)} /></label> : null}
-        <label className="text-xs font-semibold text-[#62685d]">Business tax rate (%)<input type="number" readOnly aria-readonly="true" className={`${input} mt-1 bg-[#f7f8f5]`} value={taxPercentage} /></label>
+        {permissions.canDiscount ? <label className="text-xs font-semibold text-[#62685d]">Invoice discount{currency ? ` (${currency})` : ''}<input type="number" min="0" step="0.01" className={`${input} mt-1`} value={discountAmount} onChange={(e) => setDiscountAmount(e.target.value)} /></label> : null}
+        <label className="text-xs font-semibold text-[#62685d]">{permissions.canEditSettings ? 'Tax rate override (%)' : 'Business tax rate (%)'}<input type="number" min="0" max="100" step="0.01" readOnly={!permissions.canEditSettings} aria-readonly={!permissions.canEditSettings} className={`${input} mt-1 ${permissions.canEditSettings ? '' : 'bg-[#f7f8f5]'}`} value={taxPercentage} onChange={(e) => setTaxPercentage(e.target.value)} /></label>
         <label className="text-xs font-semibold text-[#62685d]">Notes<input className={`${input} mt-1`} value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
       </section>
       <section className="rounded-xl border border-[#e5e7e0] bg-white p-4">
@@ -115,7 +115,7 @@ export default function NewSalesInvoicePage() {
           <label className="text-xs font-semibold text-[#62685d]">Quantity<input type="number" min="0.0001" step="0.0001" required className={`${input} mt-1`} value={line.quantity} onChange={(e) => updateLine(index, 'quantity', e.target.value)} /></label>
           <label className="text-xs font-semibold text-[#62685d]">Unit price<input type="number" min="0" step="0.0001" required className={`${input} mt-1`} value={line.unitPrice} onChange={(e) => updateLine(index, 'unitPrice', e.target.value)} /></label>
           {permissions.canDiscount ? <label className="text-xs font-semibold text-[#62685d]">Line discount %<input type="number" min="0" max="100" step="0.0001" className={`${input} mt-1`} value={line.discountPercentage} onChange={(e) => updateLine(index, 'discountPercentage', e.target.value)} /></label> : null}
-          <button type="button" disabled={lines.length === 1} onClick={() => setLines((all) => all.filter((_, i) => i !== index))} className="min-h-10 self-end rounded-lg px-3 text-sm text-rose-700 underline disabled:opacity-40">Remove</button>
+          <button type="button" disabled={lines.length === 1} onClick={() => setLines((all) => all.filter((_, i) => i !== index))} className="min-h-10 self-end rounded-lg border border-[#efd4cf] bg-[#fff7f5] px-3 text-sm font-semibold text-[#9b3730] transition hover:bg-[#ffe4df] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a63832] disabled:cursor-not-allowed disabled:border-[#dfe2da] disabled:bg-transparent disabled:text-[#73766f] dark:border-[#533530] dark:bg-[#241a19] dark:text-[#ffaaa0] dark:hover:bg-[#351e1b] dark:focus-visible:outline-[#ffaaa0] dark:disabled:border-[#343a32] dark:disabled:bg-transparent dark:disabled:text-[#8a9186]">Remove</button>
         </div>)}</div>
         <div className="mt-4 flex flex-wrap justify-end gap-x-8 gap-y-2 border-t border-[#eef0eb] pt-4 text-sm"><span>Subtotal after line discounts: <strong>{money(subtotal, currency)}</strong></span><span>Taxable amount: <strong>{money(taxableEstimate, currency)}</strong></span><span>Tax ({taxPercentage}%): <strong>{money(taxEstimate, currency)}</strong></span><span>Estimated total: <strong>{money(estimate, currency)}</strong></span></div>
         <p className="mt-2 text-xs text-[#747a68]">Tax defaults to the rate configured in Business settings (18% by default) and is calculated after discounts. The server recalculates all totals. Stock availability is checked when the invoice is issued.</p>

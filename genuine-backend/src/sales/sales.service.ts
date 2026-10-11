@@ -59,7 +59,7 @@ export class SalesService {
   ) {}
 
   async getInvoiceOptions(businessId: string) {
-    const [business, locations, salespeople] = await Promise.all([
+    const [business, locations, salespeople, customers] = await Promise.all([
       this.prisma.business.findUnique({
         where: { id: businessId },
         select: { currency: true, taxPercentage: true },
@@ -74,9 +74,15 @@ export class SalesService {
         orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
         select: { id: true, firstName: true, lastName: true },
       }),
+      this.prisma.customer.findMany({
+        where: { businessId, isActive: true },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      }),
     ]);
     if (!business) throw new NotFoundException('Business not found');
     return {
+      customers,
       locations,
       salespeople: salespeople.map((user) => ({
         id: user.id,
@@ -138,8 +144,14 @@ export class SalesService {
           await this.assertPermission(tx, businessId, userId, 'settings.edit');
         const grossSubtotal = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
         const lineDiscount = lines.reduce((sum, line) => sum + line.discount, 0);
-        const discountPercentage =
-          grossSubtotal > 0 ? ((lineDiscount + discount.amount) / grossSubtotal) * 100 : 0;
+        // Enforce the role ceiling against entered percentages as well as the
+        // combined effective discount. Checking only rounded currency amounts
+        // lets a value such as 10.0001% round to 10.00% and slip past the cap.
+        const discountPercentage = Math.max(
+          dto.discountPercentage ?? 0,
+          ...lines.map((line) => line.discountPercentage || 0),
+          grossSubtotal > 0 ? ((lineDiscount + discount.amount) / grossSubtotal) * 100 : 0,
+        );
         if (discountPercentage > 0)
           await this.assertDiscountLimit(tx, businessId, userId, discountPercentage);
         await tx.$queryRaw`SELECT "id" FROM "Customer" WHERE "id" = ${customer.id} AND "businessId" = ${businessId} FOR UPDATE`;
@@ -270,11 +282,17 @@ export class SalesService {
       dueDate: { dueDate: direction },
       createdAt: { createdAt: direction },
     };
+    const sortBy = filter.sortBy || 'createdAt';
+    const primaryOrder: Prisma.SalesInvoiceOrderByWithRelationInput =
+      orderBy[sortBy] || { createdAt: 'desc' };
+    const stableOrderBy: Prisma.SalesInvoiceOrderByWithRelationInput[] = sortBy === 'invoiceNumber'
+      ? [primaryOrder]
+      : [primaryOrder, { invoiceNumber: direction }];
     const [rows, total] = await Promise.all([
       this.prisma.salesInvoice.findMany({
         where,
         include: invoiceInclude,
-        orderBy: orderBy[filter.sortBy || ''] || { createdAt: 'desc' },
+        orderBy: stableOrderBy,
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -367,8 +385,13 @@ export class SalesService {
         dto.discountPercentage !== undefined;
       const grossSubtotal = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
       const lineDiscount = lines.reduce((sum, line) => sum + line.discount, 0);
-      const discountPercentage =
-        grossSubtotal > 0 ? ((lineDiscount + discount.amount) / grossSubtotal) * 100 : 0;
+      // Keep the same cap check for draft edits; include raw user-entered
+      // percentages before currency rounding and the aggregate effective rate.
+      const discountPercentage = Math.max(
+        dto.discountPercentage ?? 0,
+        ...lines.map((line) => line.discountPercentage || 0),
+        grossSubtotal > 0 ? ((lineDiscount + discount.amount) / grossSubtotal) * 100 : 0,
+      );
       if (discountPercentage > 1e-8)
         await this.assertDiscountLimit(tx, businessId, userId, discountPercentage);
       const effectiveTaxPercentage =

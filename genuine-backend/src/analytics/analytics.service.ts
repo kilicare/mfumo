@@ -325,7 +325,9 @@ export class AnalyticsService {
         revenue: 0,
         invoiceCount: 0,
       };
-      existing.revenue += invoice.totalAmount - (returnByInvoice.get(invoice.id) || 0);
+      // Period returns are deducted once below, grouped by customer. Do not also
+      // deduct invoice-linked returns here or the customer breakdown double-counts them.
+      existing.revenue += invoice.totalAmount;
       existing.invoiceCount += 1;
       customerRows.set(invoice.customerId, existing);
     }

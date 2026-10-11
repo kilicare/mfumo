@@ -39,6 +39,7 @@ export interface Customer {
 }
 
 export interface SalesInvoiceOptions {
+  customers: Array<{ id: string; name: string }>;
   locations: LocationOption[];
   salespeople: Array<{ id: string; name: string }>;
   taxPercentage: number;

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { salesAPI, type InvoiceStatus, type SalesInvoiceFilters } from '@/lib/api/sales';
 import { getApiError } from '@/lib/api';
 import { useSalesStore } from '@/store/salesStore';
@@ -22,6 +22,8 @@ export default function SalesInvoicesPage() {
   const [sortOrder, setSortOrder] = useState<SalesInvoiceFilters['sortOrder']>('desc');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const toDateRef = useRef<HTMLInputElement>(null);
+  const [dateRangeError, setDateRangeError] = useState('');
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [options, setOptions] = useState<{ locations: Array<{ id: string; name: string }>; salespeople: Array<{ id: string; name: string }> }>({ locations: [], salespeople: [] });
   const [pageError, setPageError] = useState('');
@@ -29,18 +31,22 @@ export default function SalesInvoicesPage() {
 
   useEffect(() => { void fetchInvoices(filters).catch(() => undefined); }, [fetchInvoices, filters]);
   useEffect(() => {
-    if (!permissions.canViewCustomers) return;
-    void salesAPI.customers().then(setCustomers).catch((cause) => setPageError(getApiError(cause, 'Customer filter is unavailable.')));
-  }, [permissions.canViewCustomers]);
-  useEffect(() => {
     if (!permissions.canView) return;
-    void salesAPI.invoiceOptions().then(setOptions).catch((cause) => setPageError(getApiError(cause, 'Sales filters are unavailable.')));
+    void salesAPI.invoiceOptions().then((result) => { setOptions(result); setCustomers(result.customers); }).catch((cause) => setPageError(getApiError(cause, 'Sales filters are unavailable.')));
   }, [permissions.canView]);
 
   function applyFilters(event: FormEvent) {
     event.preventDefault();
     setPageError('');
-    if (from && to && from > to) { setPageError('Start date must be on or before end date.'); return; }
+    if (from && to && from > to) {
+      setDateRangeError('Start date must be on or before end date.');
+      requestAnimationFrame(() => {
+        toDateRef.current?.focus();
+        toDateRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+      return;
+    }
+    setDateRangeError('');
     setFilters({ search: search.trim() || undefined, status: (status || undefined) as InvoiceStatus | undefined,
       customerId: customerId || undefined, locationId: locationId || undefined, salespersonId: salespersonId || undefined,
       dateFrom: from || undefined, dateTo: to || undefined, sortBy, sortOrder, page: 1, limit: 20 });
@@ -61,11 +67,11 @@ export default function SalesInvoicesPage() {
       <label><span className="mb-1 block text-xs font-semibold text-[#62685d]">Customer</span><select className={inputClass} value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={!permissions.canViewCustomers}><option value="">All customers</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
       <label><span className="mb-1 block text-xs font-semibold text-[#62685d]">Location</span><select className={inputClass} value={locationId} onChange={(e) => setLocationId(e.target.value)}><option value="">All locations</option>{options.locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label><span className="mb-1 block text-xs font-semibold text-[#62685d]">Salesperson</span><select className={inputClass} value={salespersonId} onChange={(e) => setSalespersonId(e.target.value)}><option value="">All salespeople</option>{options.salespeople.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label><span className="mb-1 block text-xs font-semibold text-[#62685d]">From</span><input type="date" className={inputClass} value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-      <label><span className="mb-1 block text-xs font-semibold text-[#62685d]">To</span><input type="date" className={inputClass} value={to} onChange={(e) => setTo(e.target.value)} /></label>
+      <label><span className="mb-1 block text-xs font-semibold text-[#62685d]">From</span><input type="date" className={inputClass} value={from} onChange={(e) => { setFrom(e.target.value); setDateRangeError(''); }} /></label>
+      <label><span className="mb-1 block text-xs font-semibold text-[#62685d]">To</span><input ref={toDateRef} type="date" className={`${inputClass} ${dateRangeError ? 'border-[#a63832] focus:border-[#a63832] focus:ring-[#a63832]/20' : ''}`} value={to} aria-invalid={!!dateRangeError} aria-describedby={dateRangeError ? 'invoice-date-range-error' : undefined} onChange={(e) => { setTo(e.target.value); setDateRangeError(''); }} />{dateRangeError ? <span id="invoice-date-range-error" role="alert" className="mt-1 block text-xs font-medium text-[#a63832]">{dateRangeError}</span> : null}</label>
       <label><span className="mb-1 block text-xs font-semibold text-[#62685d]">Sort by</span><select className={inputClass} value={sortBy} onChange={(e) => setSortBy(e.target.value as SalesInvoiceFilters['sortBy'])}><option value="createdAt">Created date</option><option value="invoiceNumber">Invoice number</option><option value="totalAmount">Total amount</option><option value="invoiceDate">Invoice date</option><option value="dueDate">Due date</option></select></label>
       <label><span className="mb-1 block text-xs font-semibold text-[#62685d]">Sort order</span><select className={inputClass} value={sortOrder} onChange={(e) => setSortOrder(e.target.value as SalesInvoiceFilters['sortOrder'])}><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
-      <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-6"><button className="min-h-10 rounded-lg bg-[#20211f] px-4 text-sm font-semibold text-white">Apply filters</button><button type="button" className="min-h-10 rounded-lg border border-[#dfe2d9] px-4 text-sm font-semibold text-[#454a42]" onClick={() => { setSearch(''); setStatus(''); setCustomerId(''); setLocationId(''); setSalespersonId(''); setFrom(''); setTo(''); setSortBy('createdAt'); setSortOrder('desc'); setPageError(''); setFilters({ page: 1, limit: 20 }); }}>Reset</button></div>
+      <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-6"><button className="min-h-10 rounded-lg bg-[#20211f] px-4 text-sm font-semibold text-white">Apply filters</button><button type="button" className="min-h-10 rounded-lg border border-[#dfe2d9] px-4 text-sm font-semibold text-[#454a42]" onClick={() => { setSearch(''); setStatus(''); setCustomerId(''); setLocationId(''); setSalespersonId(''); setFrom(''); setTo(''); setDateRangeError(''); setSortBy('createdAt'); setSortOrder('desc'); setPageError(''); setFilters({ page: 1, limit: 20 }); }}>Reset</button></div>
     </form>
     <section aria-label="Sales invoices" aria-busy={isLoading} className="overflow-hidden rounded-xl border border-[#e5e7e0] bg-white">
       <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm">

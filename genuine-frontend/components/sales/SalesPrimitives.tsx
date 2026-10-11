@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
 import type { InvoiceStatus, ReturnStatus } from '@/lib/api/sales';
 
-export const money = (value: number, currency = 'TZS') => new Intl.NumberFormat(undefined, {
-  style: 'currency', currency, maximumFractionDigits: 2,
+export const money = (value: number, currency?: string) => new Intl.NumberFormat(undefined, {
+  ...(currency ? { style: 'currency' as const, currency } : { style: 'decimal' as const }),
+  maximumFractionDigits: 2,
 }).format(Number.isFinite(value) ? value : 0);
 
 export const dateLabel = (value?: string) => value
@@ -25,6 +26,7 @@ export function useSalesPermissions() {
     canViewCustomers: permissions.includes('customers.view'),
     canViewProducts: permissions.includes('products.view'),
     canViewSettings: permissions.includes('settings.view'),
+    canEditSettings: permissions.includes('settings.edit'),
   };
 }
 

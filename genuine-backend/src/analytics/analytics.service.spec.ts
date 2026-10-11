@@ -55,3 +55,47 @@ describe('AnalyticsService product performance', () => {
     expect(result.data.reduce((sum, product) => sum + product.revenue, 0)).toBe(85);
   });
 });
+
+describe('AnalyticsService sales dashboard', () => {
+  it('deducts a customer return once from both total revenue and top-customer revenue', async () => {
+    const invoice = {
+      id: 'invoice-a',
+      customerId: 'customer-a',
+      issuedDate: new Date('2026-10-05T00:00:00.000Z'),
+      totalAmount: 100,
+      customer: { id: 'customer-a', name: 'Customer A' },
+      items: [],
+    };
+    const returned = {
+      id: 'return-a',
+      invoiceId: invoice.id,
+      customerId: invoice.customerId,
+      totalAmount: 10,
+      returnDate: new Date('2026-10-06T00:00:00.000Z'),
+      items: [],
+      invoice: { customerId: invoice.customerId, customer: invoice.customer },
+    };
+    const prisma = {
+      business: { findUnique: jest.fn().mockResolvedValue({ id: 'business-a', currency: 'TZS' }) },
+      accountingPeriod: { findFirst: jest.fn() },
+      salesInvoice: { findMany: jest.fn().mockResolvedValue([invoice]) },
+      salesReturn: {
+        findMany: jest.fn()
+          .mockResolvedValueOnce([returned])
+          .mockResolvedValueOnce([returned]),
+      },
+      payment: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const service = new AnalyticsService(prisma as any, {} as any, {} as any);
+
+    const result = await service.getSalesDashboard('business-a', {
+      dateFrom: '2026-10-01',
+      dateTo: '2026-10-31',
+    } as any);
+
+    expect(result.metrics.revenue).toBe(90);
+    expect(result.topCustomers).toEqual([
+      expect.objectContaining({ customerId: 'customer-a', revenue: 90, invoiceCount: 1 }),
+    ]);
+  });
+});

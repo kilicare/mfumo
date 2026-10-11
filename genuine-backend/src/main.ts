@@ -39,7 +39,7 @@ async function bootstrap() {
       origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
       credentials: true,
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-      allowedHeaders: 'Content-Type,Authorization',
+      allowedHeaders: 'Content-Type,Authorization,Idempotency-Key',
     }),
   );
 

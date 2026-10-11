@@ -43,7 +43,7 @@ export class SalesController {
   @RequirePermission('sales.view', 'sales.create', 'sales.edit')
   @ApiOperation({
     summary:
-      'Get active locations, salespeople and tax settings for sales filters and invoice entry',
+      'Get active customers, locations, salespeople and tax settings for sales filters and invoice entry',
   })
   invoiceOptions(@Business() businessId: string) {
     return this.salesService.getInvoiceOptions(businessId);

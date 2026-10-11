@@ -43,29 +43,45 @@ function message(error: unknown, fallback: string) {
   return getApiError(error, fallback);
 }
 
+// Rapid filter changes/navigation can leave requests in flight. Only the newest
+// read for each view is allowed to replace that view's current data.
+let invoiceListRequest = 0;
+let invoiceDetailRequest = 0;
+let returnListRequest = 0;
+
 export const useSalesStore = create<SalesState>((set, get) => ({
   invoices: [], returns: [], customers: [], selectedInvoice: null, selectedReturn: null,
   total: 0, page: 1, limit: 20, isLoading: false, error: null,
   fetchInvoices: async (filters = {}) => {
+    const requestId = ++invoiceListRequest;
     set({ isLoading: true, error: null });
     try {
       const result = await salesAPI.invoices(filters);
+      if (requestId !== invoiceListRequest) return;
       set({ invoices: result.data, total: result.total, page: result.page, limit: result.limit });
     } catch (error) {
-      set({ invoices: [], total: 0, error: message(error, 'Could not load invoices.') });
+      if (requestId === invoiceListRequest) {
+        set({ invoices: [], total: 0, error: message(error, 'Could not load invoices.') });
+      }
       throw error;
-    } finally { set({ isLoading: false }); }
+    } finally {
+      if (requestId === invoiceListRequest) set({ isLoading: false });
+    }
   },
   fetchInvoice: async (id) => {
+    const requestId = ++invoiceDetailRequest;
     set({ isLoading: true, error: null, selectedInvoice: null });
     try {
       const invoice = await salesAPI.invoice(id);
+      if (requestId !== invoiceDetailRequest) return invoice;
       set((state) => ({ selectedInvoice: invoice, invoices: state.invoices.map((row) => row.id === id ? invoice : row) }));
       return invoice;
     } catch (error) {
-      set({ error: message(error, 'Could not load this invoice.') });
+      if (requestId === invoiceDetailRequest) set({ error: message(error, 'Could not load this invoice.') });
       throw error;
-    } finally { set({ isLoading: false }); }
+    } finally {
+      if (requestId === invoiceDetailRequest) set({ isLoading: false });
+    }
   },
   createInvoice: async (input) => {
     set({ isLoading: true, error: null });
@@ -109,12 +125,20 @@ export const useSalesStore = create<SalesState>((set, get) => ({
     finally { set({ isLoading: false }); }
   },
   fetchReturns: async (filters = {}) => {
+    const requestId = ++returnListRequest;
     set({ isLoading: true, error: null });
     try {
       const result = await salesAPI.returns(filters);
+      if (requestId !== returnListRequest) return;
       set({ returns: result.data, total: result.total, page: result.page, limit: result.limit });
-    } catch (error) { set({ returns: [], total: 0, error: message(error, 'Could not load sales returns.') }); throw error; }
-    finally { set({ isLoading: false }); }
+    } catch (error) {
+      if (requestId === returnListRequest) {
+        set({ returns: [], total: 0, error: message(error, 'Could not load sales returns.') });
+      }
+      throw error;
+    } finally {
+      if (requestId === returnListRequest) set({ isLoading: false });
+    }
   },
   fetchReturn: async (id) => {
     set({ isLoading: true, error: null });
